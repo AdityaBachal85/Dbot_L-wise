@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <title>DBOT Land Intelligence</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
 <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -53,6 +53,37 @@
           </div>
         </section>
 
+        <section id="additional-details-section" class="hidden">
+          <h3>Additional Land Details</h3>
+          <div class="field-list">
+            <div class="field"><label>Ht. Permitted by AAI</label><span id="ad-aai">—</span><span class="unit">m</span></div>
+            <div class="field"><label>Area under DP Road/Setback</label><span id="ad-road">—</span><span class="unit">sq m</span></div>
+            <div class="field"><label>Area under Reservations</label><span id="ad-resarea">—</span><span class="unit">sq m</span></div>
+            <div class="field"><label># of Reservations</label><span id="ad-rescount">—</span></div>
+            <div class="field"><label>Falls in Gaothan/Koliwada/Adivasipada</label><span id="ad-gaothan">—</span></div>
+          </div>
+
+          <div class="field-list flagged-list">
+            <div class="field flagged" data-tooltip-target="ad-crz-tip"><label>Falls in CRZ</label><span id="ad-crz">—</span><span class="confidence-flag" title="Lower confidence — hover for details">ⓘ</span></div>
+            <p class="field-note" id="ad-crz-tip"></p>
+            <div class="field flagged" data-tooltip-target="ad-metro-tip"><label>Within Metro Proximity</label><span id="ad-metro">—</span><span class="confidence-flag" title="Lower confidence — hover for details">ⓘ</span></div>
+            <p class="field-note" id="ad-metro-tip"></p>
+            <div class="field flagged" data-tooltip-target="ad-industrial-tip"><label>Falls in Industrial Zone</label><span id="ad-industrial">—</span><span class="confidence-flag" title="Lower confidence — hover for details">ⓘ</span></div>
+            <p class="field-note" id="ad-industrial-tip"></p>
+          </div>
+
+          <div class="field-list gap-list">
+            <div class="field gap"><label>ASR-based Rate</label><span id="ad-asr">Not yet available</span></div>
+            <div class="field gap"><label>CBD Boundary</label><span id="ad-cbd">Not yet available</span></div>
+            <div class="field gap"><label>Slums on Site</label><span id="ad-slums">Not yet available</span></div>
+          </div>
+
+          <details id="all-features-details">
+            <summary>All intersecting layers (<span id="ad-feature-count">0</span>)</summary>
+            <div id="ad-feature-list" class="feature-list"></div>
+          </details>
+        </section>
+
         <label class="acknowledge">
           <input type="checkbox" id="acknowledge-checkbox" />
           I acknowledge that I cannot edit Basic details after proceeding.
@@ -62,7 +93,7 @@
     </div>
   </div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="vendor/leaflet/leaflet.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

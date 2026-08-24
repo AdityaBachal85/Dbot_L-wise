@@ -12,6 +12,7 @@ const searchResults = document.getElementById('search-results');
 const panel = document.getElementById('details-panel');
 const acknowledgeCheckbox = document.getElementById('acknowledge-checkbox');
 const continueBtn = document.getElementById('continue-btn');
+const additionalDetailsSection = document.getElementById('additional-details-section');
 
 acknowledgeCheckbox.addEventListener('change', () => {
   continueBtn.disabled = !acknowledgeCheckbox.checked;
@@ -26,8 +27,51 @@ function clearSelection() {
   document.getElementById('panel-subtitle').textContent = 'No plot selected';
   ['project','city','ward','village','zone','dpzone','cts','plots','area','avgwidth','elevation','abutting','ownership','devtype']
     .forEach((id) => { const el = document.getElementById(`f-${id}`); if (el) el.textContent = '—'; });
+  additionalDetailsSection.classList.add('hidden');
   acknowledgeCheckbox.checked = false;
   continueBtn.disabled = true;
+}
+
+// --- Static data access -----------------------------------------------
+// This app reads pre-built static JSON (dbot-landwise/scripts/buildStaticData.js
+// + buildFastStaticAssets.js) instead of calling an Express API — GitHub Pages
+// serves static files only. Each ward's parcel geometry / fact battery is
+// fetched once and cached in memory, same "load once, query in-process" shape
+// the Express version used server-side.
+
+let villagesIndexPromise = null;
+const wardParcelsCache = new Map(); // wardCode -> FeatureCollection.features
+const wardFactsCache = new Map(); // wardCode -> { "village|cts": facts }
+
+function wardFileCode(ward) {
+  return ward.replace('/', '-');
+}
+
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url} -> HTTP ${res.status}`);
+  return res.json();
+}
+
+function loadVillagesIndex() {
+  if (!villagesIndexPromise) villagesIndexPromise = fetchJson('data/villages.json');
+  return villagesIndexPromise;
+}
+
+async function loadWardParcels(ward) {
+  const code = wardFileCode(ward);
+  if (!wardParcelsCache.has(code)) {
+    wardParcelsCache.set(code, fetchJson(`data/parcels/ward_${code}.geojson`).then((fc) => fc.features));
+  }
+  return wardParcelsCache.get(code);
+}
+
+async function loadWardFacts(ward) {
+  const code = wardFileCode(ward);
+  if (!wardFactsCache.has(code)) {
+    wardFactsCache.set(code, fetchJson(`data/facts/ward_${code}.json`));
+  }
+  return wardFactsCache.get(code);
 }
 
 // --- Search: as-you-type, matches "CTS / village" pattern from the reference ---
@@ -40,20 +84,9 @@ searchInput.addEventListener('input', () => {
 });
 
 async function runSearch(query) {
-  // Simple approach for v1: search across all wards' village lists, then
-  // parcel lists, matching on substring. Fine at this data scale (135K
-  // parcels held server-side, not re-fetched per keystroke) — revisit
-  // with a proper index if search ever feels slow in practice.
-  const wards = await fetchJson('/api/wards');
-  const matches = [];
-  for (const ward of wards) {
-    const villages = await fetchJson(`/api/villages?ward=${encodeURIComponent(ward)}`);
-    for (const village of villages) {
-      if (village.toLowerCase().includes(query.toLowerCase())) {
-        matches.push({ type: 'village', ward, village });
-      }
-    }
-  }
+  const villages = await loadVillagesIndex();
+  const q = query.toLowerCase();
+  const matches = villages.filter((v) => v.village.toLowerCase().includes(q));
   renderSearchResults(matches.slice(0, 15));
 }
 
@@ -73,15 +106,20 @@ function renderSearchResults(matches) {
 async function selectVillage(ward, village) {
   searchResults.classList.add('hidden');
   searchInput.value = village;
-  const parcels = await fetchJson(`/api/parcels?ward=${encodeURIComponent(ward)}&village=${encodeURIComponent(village)}`);
-  showParcelsOnMap(parcels, ward, village);
+  const parcels = await loadWardParcels(ward);
+  const matching = parcels.filter((p) => p.properties.VILLAGE === village);
+  showParcelsOnMap(matching, ward, village);
 }
 
 function showParcelsOnMap(parcels, ward, village) {
   if (allParcelsLayer) map.removeLayer(allParcelsLayer);
   const featureCollection = {
     type: 'FeatureCollection',
-    features: parcels.map((p) => ({ type: 'Feature', properties: { cts: p.cts, ward, village }, geometry: p.geometry })),
+    features: parcels.map((p) => ({
+      type: 'Feature',
+      properties: { cts: p.properties.CTS_CS_NO, ward, village },
+      geometry: p.geometry,
+    })),
   };
   allParcelsLayer = L.geoJSON(featureCollection, {
     style: { color: '#0b1f3a', weight: 1, fillOpacity: 0.05 },
@@ -93,12 +131,30 @@ function showParcelsOnMap(parcels, ward, village) {
 }
 
 async function selectParcel(ward, village, cts) {
-  const details = await fetchJson(`/api/parcel/${encodeURIComponent(ward)}/${encodeURIComponent(village)}/${encodeURIComponent(cts)}`);
-  populatePanel(details);
+  const facts = await loadWardFacts(ward);
+  const details = facts[`${village}|${cts}`];
+  if (!details) {
+    console.error(`No precomputed facts for ${ward}/${village}/${cts}`);
+    return;
+  }
+  populatePanel({ ...details, location: buildLocation(ward, village, cts, details) });
 
   if (currentParcelLayer) map.removeLayer(currentParcelLayer);
   currentParcelLayer = L.geoJSON(details.geometry, { className: 'parcel-highlight' }).addTo(map);
   map.fitBounds(currentParcelLayer.getBounds(), { maxZoom: 18, padding: [40, 40] });
+}
+
+function buildLocation(ward, village, cts, details) {
+  return {
+    project: 'New Project',
+    city: 'Mumbai',
+    ward,
+    village,
+    zone: details.location.zone,
+    dpZone: details.location.dpZone,
+    ctsTps: cts,
+    numPlots: 1,
+  };
 }
 
 function populatePanel(details) {
@@ -122,6 +178,50 @@ function populatePanel(details) {
   setText('f-abutting', land.abuttingRoad ?? 'Enter manually');
   setText('f-ownership', land.ownership ?? 'Enter manually');
   setText('f-devtype', land.developmentType ?? 'Enter manually');
+
+  populateAdditionalDetails(details.additionalDetails, details.allIntersectingFeatures);
+}
+
+function populateAdditionalDetails(ad, allFeatures) {
+  if (!ad) { additionalDetailsSection.classList.add('hidden'); return; }
+  additionalDetailsSection.classList.remove('hidden');
+
+  const c = ad.confident;
+  setText('ad-aai', c.heightPermittedByAAI != null ? formatNumber(c.heightPermittedByAAI) : 'Not applicable here');
+  setText('ad-road', c.areaUnderDPRoadSetbackSqm != null ? formatNumber(c.areaUnderDPRoadSetbackSqm) : '0');
+  setText('ad-resarea', c.areaUnderReservationsSqm != null ? formatNumber(c.areaUnderReservationsSqm) : '0');
+  setText('ad-rescount', c.reservationCount);
+  setText('ad-gaothan', c.fallsInGaothanKoliwadaAdivasipada ? 'Yes' : 'No');
+
+  const f = ad.flagged;
+  setYesNoWithTooltip('ad-crz', 'ad-crz-tip', f.fallsInCRZ);
+  setYesNoWithTooltip('ad-metro', 'ad-metro-tip', f.withinMetroProximity);
+  setYesNoWithTooltip('ad-industrial', 'ad-industrial-tip', f.fallsInIndustrialZone);
+
+  const featureListEl = document.getElementById('ad-feature-list');
+  const countEl = document.getElementById('ad-feature-count');
+  featureListEl.innerHTML = '';
+  const features = allFeatures ?? [];
+  countEl.textContent = features.length;
+  for (const feat of features) {
+    const row = document.createElement('div');
+    row.className = 'feature-item';
+    const label = document.createElement('span');
+    label.className = 'feature-label';
+    label.textContent = feat.label;
+    const badge = document.createElement('span');
+    badge.className = `feature-confidence ${feat.confidence}`;
+    badge.textContent = feat.confidence;
+    row.appendChild(label);
+    row.appendChild(badge);
+    featureListEl.appendChild(row);
+  }
+}
+
+function setYesNoWithTooltip(valueId, tooltipId, flaggedField) {
+  setText(valueId, flaggedField.value ? 'Yes' : 'No');
+  const tip = document.getElementById(tooltipId);
+  if (tip) tip.textContent = flaggedField.note;
 }
 
 function setText(id, value) {
@@ -132,12 +232,6 @@ function setText(id, value) {
 function formatNumber(n) {
   if (n == null) return '—';
   return n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
-}
-
-async function fetchJson(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url} -> HTTP ${res.status}`);
-  return res.json();
 }
 
 clearSelection();

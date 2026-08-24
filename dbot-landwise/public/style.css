@@ -86,3 +86,42 @@ section h3 {
 
 .leaflet-container { background: var(--bg-cream); }
 .parcel-highlight { stroke: var(--dbot-gold); stroke-width: 2; fill: var(--dbot-navy-light); fill-opacity: 0.2; }
+
+.hidden { display: none !important; }
+
+/* Additional Land Details — confidence tiers per the brief: confident facts get
+   plain styling, flagged (lower-confidence) facts get an info marker + tooltip
+   explaining exactly what was and wasn't checked, gaps are visibly muted. */
+.flagged-list { margin-top: 4px; }
+.field.flagged { position: relative; }
+.confidence-flag {
+  margin-left: 6px; color: var(--dbot-gold); font-size: 12px;
+  cursor: help; flex: 0 0 auto;
+}
+.field-note {
+  display: none; margin: -4px 0 8px; padding: 8px 10px;
+  background: #fff8ea; border: 1px solid var(--dbot-gold-light); border-radius: 6px;
+  font-size: 12px; color: var(--text-muted); line-height: 1.4;
+}
+.field.flagged:hover + .field-note,
+.field.flagged:focus-within + .field-note { display: block; }
+
+.gap-list { margin-top: 4px; opacity: 0.65; }
+.gap-list .field span { font-style: italic; }
+
+#all-features-details { margin-top: 12px; font-size: 12px; }
+#all-features-details summary { cursor: pointer; color: var(--dbot-navy); font-weight: 600; }
+.feature-list { max-height: 260px; overflow-y: auto; margin-top: 8px; }
+.feature-item {
+  padding: 6px 8px; border-bottom: 1px solid rgba(0,0,0,0.05);
+  display: flex; justify-content: space-between; gap: 8px;
+}
+.feature-item .feature-label { color: var(--text-main); }
+.feature-item .feature-confidence {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em;
+  padding: 1px 6px; border-radius: 10px; flex: 0 0 auto; align-self: flex-start;
+}
+.feature-confidence.confirmed { background: #e3f3e6; color: #1f7a34; }
+.feature-confidence.high { background: #e6f0fb; color: #1f5a9c; }
+.feature-confidence.medium { background: #fdf3d8; color: #8a6a13; }
+.feature-confidence.low, .feature-confidence.unconfirmed { background: #f3e6e6; color: #9c3a3a; }
