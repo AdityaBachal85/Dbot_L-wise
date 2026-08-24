@@ -87,6 +87,12 @@ section h3 {
 .leaflet-container { background: var(--bg-cream); }
 .parcel-highlight { stroke: var(--dbot-gold); stroke-width: 2; fill: var(--dbot-navy-light); fill-opacity: 0.2; }
 
+.cts-label {
+  font-size: 11px; color: var(--text-main); white-space: nowrap;
+  transform: translate(-50%, -50%); pointer-events: none;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 3px #fff;
+}
+
 .hidden { display: none !important; }
 
 /* Additional Land Details — confidence tiers per the brief: confident facts get
@@ -108,6 +114,58 @@ section h3 {
 
 .gap-list { margin-top: 4px; opacity: 0.65; }
 .gap-list .field span { font-style: italic; }
+
+/* Additional Land Details — reference-matched layout: a two-column field
+   grid, toggle switches for boolean facts (real + manual-override gaps
+   alike, matching the reference product's own "auto-computed but user can
+   override" pattern), and a muted italic treatment for genuine gaps. */
+.two-col-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px;
+  margin-bottom: 10px;
+}
+.two-col-grid .field { border-bottom: none; padding: 2px 0; flex-wrap: wrap; }
+.two-col-grid .field label { flex: 1 1 100%; font-size: 12px; margin-bottom: 2px; }
+.two-col-grid .field .value { flex: 1 1 auto; }
+.field.gap .value { font-style: italic; opacity: 0.7; }
+
+.toggle-field { align-items: center; }
+.toggle-field label:first-child { flex: 1 1 auto; }
+.toggle-field .value { flex: 0 0 auto; font-size: 12px; margin-left: 8px; }
+
+.switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: 0 0 auto; cursor: pointer; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .slider {
+  position: absolute; inset: 0; background: #d8d2c4; border-radius: 20px;
+  transition: background 0.15s;
+}
+.switch .slider::before {
+  content: ''; position: absolute; height: 14px; width: 14px; left: 3px; top: 3px;
+  background: #fff; border-radius: 50%; transition: transform 0.15s;
+}
+.switch input:checked + .slider { background: var(--dbot-gold); }
+.switch input:checked + .slider::before { transform: translateX(16px); }
+.switch input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
+
+.reservation-block {
+  border-top: 1px solid rgba(0,0,0,0.08); margin-top: 8px; padding-top: 10px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.reservation-block select.value {
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
+  font-size: 13px; background: #fff; font-family: inherit;
+}
+
+.accordion-section { margin-bottom: 4px; }
+.accordion-toggle {
+  width: 100%; text-align: left; background: none; border: none;
+  border-top: 1px solid var(--border); padding: 12px 0; cursor: pointer;
+  font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--dbot-navy); display: flex; justify-content: space-between; align-items: center;
+}
+.accordion-caret { transition: transform 0.15s; color: var(--text-muted); }
+.accordion-toggle[aria-expanded="true"] .accordion-caret { transform: rotate(180deg); }
+.accordion-body { padding: 4px 0 12px; }
+.muted.small { font-size: 12px; line-height: 1.5; }
 
 #all-features-details { margin-top: 12px; font-size: 12px; }
 #all-features-details summary { cursor: pointer; color: var(--dbot-navy); font-weight: 600; }

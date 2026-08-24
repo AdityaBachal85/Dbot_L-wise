@@ -53,35 +53,84 @@
           </div>
         </section>
 
-        <section id="additional-details-section" class="hidden">
+        <section class="editable-section" id="additional-details-section">
           <h3>Additional Land Details</h3>
+
+          <!-- Fields matching the reference product's field set. "source" markers, not
+               shown to the user directly, explain the honesty tiers in code comments:
+               real  = actually computed from GIS data (src/config/layers.js confirmed layers)
+               infer = computed, but from an indirect/lower-confidence signal — flagged
+               gap   = no data source exists yet (ASR eASR 2.0 integration, CBD boundary,
+                       SRA slum layer) — manual entry only, never guessed -->
+          <div class="two-col-grid">
+            <div class="field editable gap"><label>Land Rate (Open Land for FSI 1)</label><span class="value" id="ad-landrate">Not yet available</span><span class="unit">₹/sq m</span><button class="edit-btn" data-field="landrate">&#9998;</button></div>
+            <div class="field editable gap"><label>Residential Apartment Rate</label><span class="value" id="ad-apartrate">Not yet available</span><span class="unit">₹/sq m</span><button class="edit-btn" data-field="apartrate">&#9998;</button></div>
+            <div class="field"><label>Ht. Permitted by Airport Authority (AAI)</label><span class="value" id="ad-aai">—</span><span class="unit">m</span></div>
+            <div class="field editable gap"><label>ASR Rate of Construction (RCC)</label><span class="value" id="ad-rccrate">Not yet available</span><span class="unit">₹/sq m</span><button class="edit-btn" data-field="rccrate">&#9998;</button></div>
+          </div>
+
+          <div class="two-col-grid toggle-grid">
+            <div class="field toggle-field gap" data-tooltip-target="ad-cbd-tip"><label>Falls in CBD (Central Business District)</label><label class="switch"><input type="checkbox" id="ad-cbd-toggle" /><span class="slider"></span></label><span class="value" id="ad-cbd-label">No data — set manually</span></div>
+            <div class="field toggle-field"><label>Falls in Gaothan/Koliwada/Adivasipada</label><label class="switch"><input type="checkbox" id="ad-gaothan-toggle" /><span class="slider"></span></label><span class="value" id="ad-gaothan-label">No</span></div>
+            <div class="field toggle-field gap" data-tooltip-target="ad-slums-tip"><label>Slums on Site</label><label class="switch"><input type="checkbox" id="ad-slums-toggle" /><span class="slider"></span></label><span class="value" id="ad-slums-label">No data — set manually</span></div>
+            <div class="field editable gap"><label>Plot Area under Slums</label><span class="value" id="ad-slumarea">Not yet available</span><span class="unit">sq m</span><button class="edit-btn" data-field="slumarea">&#9998;</button></div>
+            <div class="field toggle-field flagged" data-tooltip-target="ad-industrial-tip"><label>Falls in Industrial Zone</label><label class="switch"><input type="checkbox" id="ad-industrial-toggle" /><span class="slider"></span></label><span class="value" id="ad-industrial-label">No</span></div>
+            <div class="field toggle-field flagged" data-tooltip-target="ad-crz-tip"><label>Falls in CRZ</label><label class="switch"><input type="checkbox" id="ad-crz-toggle" /><span class="slider"></span></label><span class="value" id="ad-crz-label">No</span></div>
+            <div class="field toggle-field flagged" data-tooltip-target="ad-metro-tip"><label>Within Metro Corridor Proximity</label><label class="switch"><input type="checkbox" id="ad-metro-toggle" /><span class="slider"></span></label><span class="value" id="ad-metro-label">No</span></div>
+            <div class="field editable"><label>Existing BUA to be Retained</label><span class="value" id="ad-buaretained">0</span><span class="unit">sq m</span><button class="edit-btn" data-field="buaretained">&#9998;</button></div>
+          </div>
+          <p class="field-note" id="ad-cbd-tip">Genuine gap — no CBD boundary source has been identified yet. This toggle is a manual override, not a computed fact.</p>
+          <p class="field-note" id="ad-slums-tip">Genuine gap — SRA slum-layer data has been located but not yet integrated. This toggle is a manual override, not a computed fact.</p>
+          <p class="field-note" id="ad-industrial-tip">Inferred from a touching/nearby MIDC-authority reservation (DP/52), not a dedicated industrial-zone layer.</p>
+          <p class="field-note" id="ad-crz-tip">Only one thin CRZ buffer feature exists citywide (DP/66), with no I/II/III/IV sub-classification — shown generically as "CRZ", not a specific sub-zone.</p>
+          <p class="field-note" id="ad-metro-tip">Corridor proximity only — metro station point data was never sourced, so this cannot check an actual distance-to-station threshold.</p>
+
           <div class="field-list">
-            <div class="field"><label>Ht. Permitted by AAI</label><span id="ad-aai">—</span><span class="unit">m</span></div>
             <div class="field"><label>Area under DP Road/Setback</label><span id="ad-road">—</span><span class="unit">sq m</span></div>
+          </div>
+
+          <div class="reservation-block">
             <div class="field"><label>Area under Reservations</label><span id="ad-resarea">—</span><span class="unit">sq m</span></div>
+            <div class="field editable">
+              <label>Development of Reserved Area</label>
+              <select class="value" id="ad-resdev">
+                <option>Handover to Authority</option>
+                <option>Retain in Layout</option>
+                <option>Not Applicable</option>
+              </select>
+            </div>
             <div class="field"><label># of Reservations</label><span id="ad-rescount">—</span></div>
-            <div class="field"><label>Falls in Gaothan/Koliwada/Adivasipada</label><span id="ad-gaothan">—</span></div>
-          </div>
-
-          <div class="field-list flagged-list">
-            <div class="field flagged" data-tooltip-target="ad-crz-tip"><label>Falls in CRZ</label><span id="ad-crz">—</span><span class="confidence-flag" title="Lower confidence — hover for details">ⓘ</span></div>
-            <p class="field-note" id="ad-crz-tip"></p>
-            <div class="field flagged" data-tooltip-target="ad-metro-tip"><label>Within Metro Proximity</label><span id="ad-metro">—</span><span class="confidence-flag" title="Lower confidence — hover for details">ⓘ</span></div>
-            <p class="field-note" id="ad-metro-tip"></p>
-            <div class="field flagged" data-tooltip-target="ad-industrial-tip"><label>Falls in Industrial Zone</label><span id="ad-industrial">—</span><span class="confidence-flag" title="Lower confidence — hover for details">ⓘ</span></div>
-            <p class="field-note" id="ad-industrial-tip"></p>
-          </div>
-
-          <div class="field-list gap-list">
-            <div class="field gap"><label>ASR-based Rate</label><span id="ad-asr">Not yet available</span></div>
-            <div class="field gap"><label>CBD Boundary</label><span id="ad-cbd">Not yet available</span></div>
-            <div class="field gap"><label>Slums on Site</label><span id="ad-slums">Not yet available</span></div>
           </div>
 
           <details id="all-features-details">
             <summary>All intersecting layers (<span id="ad-feature-count">0</span>)</summary>
             <div id="ad-feature-list" class="feature-list"></div>
           </details>
+        </section>
+
+        <section class="accordion-section">
+          <button class="accordion-toggle" data-target="project-details-body">Project Details <span class="accordion-caret">▾</span></button>
+          <div class="accordion-body hidden" id="project-details-body">
+            <p class="muted small">Project name, developer, and consultant details — pure user entry, not derived from GIS. Not yet built.</p>
+          </div>
+        </section>
+        <section class="accordion-section">
+          <button class="accordion-toggle" data-target="regulatory-details-body">Regulatory Details <span class="accordion-caret">▾</span></button>
+          <div class="accordion-body hidden" id="regulatory-details-body">
+            <p class="muted small">DCPR scheme selection and eligibility (30(A), 33(5), 33(7)/(7A)/(7B), etc.) — powered by the Scheme Engine. Not yet wired into this UI.</p>
+          </div>
+        </section>
+        <section class="accordion-section">
+          <button class="accordion-toggle" data-target="approval-details-body">Approval Details <span class="accordion-caret">▾</span></button>
+          <div class="accordion-body hidden" id="approval-details-body">
+            <p class="muted small">NOC requirements and approval-cost estimates — needs the Fees/Approval-Cost Engine. Not yet built.</p>
+          </div>
+        </section>
+        <section class="accordion-section">
+          <button class="accordion-toggle" data-target="financial-details-body">Financial Details</button>
+          <div class="accordion-body hidden" id="financial-details-body">
+            <p class="muted small">FSI Statement waterfall and feasibility (revenue/cost/profit) — needs the FSI and Feasibility Engines. Not yet built.</p>
+          </div>
         </section>
 
         <label class="acknowledge">

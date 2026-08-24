@@ -27,6 +27,20 @@ document.getElementById('panel-close').addEventListener('click', () => {
   clearSelection();
 });
 
+// Scaffolded sections (Project/Regulatory/Approval/Financial Details) — collapsed
+// accordions for now, matching the reference product's layout. Content lands as
+// the Scheme/FSI/Fees/Feasibility Engines get wired in; this just reserves the
+// structure so it doesn't need to be re-laid-out later.
+document.querySelectorAll('.accordion-toggle').forEach((btn) => {
+  btn.setAttribute('aria-expanded', 'false');
+  btn.addEventListener('click', () => {
+    const body = document.getElementById(btn.dataset.target);
+    const expanded = btn.getAttribute('aria-expanded') === 'true';
+    btn.setAttribute('aria-expanded', String(!expanded));
+    body.classList.toggle('hidden', expanded);
+  });
+});
+
 function clearSelection() {
   if (currentParcelLayer) { map.removeLayer(currentParcelLayer); currentParcelLayer = null; }
   document.getElementById('panel-subtitle').textContent = 'No plot selected';
@@ -149,8 +163,24 @@ async function selectCtsResult(ward, village, cts) {
   await selectParcel(ward, village, cts);
 }
 
+// Persistent CTS-number labels on parcels, matching the reference product's map —
+// only past a zoom threshold, same reasoning as the dense reference-layer
+// categories: labeling all of a village's parcels is fine once zoomed in close
+// enough to read them, but would just be noise zoomed further out.
+const CTS_LABEL_MIN_ZOOM = 16;
+let ctsLabelLayer = null;
+
+function parcelCentroid(geometry) {
+  const ring = geometry.type === 'Polygon' ? geometry.coordinates[0] : geometry.coordinates[0][0];
+  let x = 0, y = 0;
+  for (const [lon, lat] of ring) { x += lon; y += lat; }
+  return [y / ring.length, x / ring.length];
+}
+
 function showParcelsOnMap(parcels, ward, village) {
   if (allParcelsLayer) map.removeLayer(allParcelsLayer);
+  if (ctsLabelLayer) map.removeLayer(ctsLabelLayer);
+
   const featureCollection = {
     type: 'FeatureCollection',
     features: parcels.map((p) => ({
@@ -165,8 +195,25 @@ function showParcelsOnMap(parcels, ward, village) {
       layer.on('click', () => selectParcel(feature.properties.ward, feature.properties.village, feature.properties.cts));
     },
   }).addTo(map);
+
+  ctsLabelLayer = L.layerGroup(
+    parcels.map((p) => L.marker(parcelCentroid(p.geometry), {
+      icon: L.divIcon({ className: 'cts-label', html: p.properties.CTS_CS_NO, iconSize: null }),
+      interactive: false,
+    })),
+  );
+  if (map.getZoom() >= CTS_LABEL_MIN_ZOOM) ctsLabelLayer.addTo(map);
+
   if (parcels.length) map.fitBounds(allParcelsLayer.getBounds(), { maxZoom: 17 });
 }
+
+map.on('zoomend', () => {
+  if (!ctsLabelLayer) return;
+  const shouldShow = map.getZoom() >= CTS_LABEL_MIN_ZOOM;
+  const isShown = map.hasLayer(ctsLabelLayer);
+  if (shouldShow && !isShown) ctsLabelLayer.addTo(map);
+  if (!shouldShow && isShown) map.removeLayer(ctsLabelLayer);
+});
 
 async function selectParcel(ward, village, cts) {
   const facts = await loadWardFacts(ward);
@@ -229,12 +276,19 @@ function populateAdditionalDetails(ad, allFeatures) {
   setText('ad-road', c.areaUnderDPRoadSetbackSqm != null ? formatNumber(c.areaUnderDPRoadSetbackSqm) : '0');
   setText('ad-resarea', c.areaUnderReservationsSqm != null ? formatNumber(c.areaUnderReservationsSqm) : '0');
   setText('ad-rescount', c.reservationCount);
-  setText('ad-gaothan', c.fallsInGaothanKoliwadaAdivasipada ? 'Yes' : 'No');
 
-  const f = ad.flagged;
-  setYesNoWithTooltip('ad-crz', 'ad-crz-tip', f.fallsInCRZ);
-  setYesNoWithTooltip('ad-metro', 'ad-metro-tip', f.withinMetroProximity);
-  setYesNoWithTooltip('ad-industrial', 'ad-industrial-tip', f.fallsInIndustrialZone);
+  // Real/inferred facts: pre-set from computed data, still user-togglable (matching
+  // the reference product's own "auto-computed default, editable" pattern) — flipping
+  // one doesn't feed back into any engine yet, it's just an override for this session.
+  setToggle('ad-gaothan-toggle', 'ad-gaothan-label', c.fallsInGaothanKoliwadaAdivasipada, { on: 'Yes', off: 'No' });
+  setToggle('ad-industrial-toggle', 'ad-industrial-label', ad.flagged.fallsInIndustrialZone.value, { on: 'Yes', off: 'No' });
+  setToggle('ad-crz-toggle', 'ad-crz-label', ad.flagged.fallsInCRZ.value, { on: 'Yes', off: 'No' });
+  setToggle('ad-metro-toggle', 'ad-metro-label', ad.flagged.withinMetroProximity.value, { on: 'Yes', off: 'No' });
+
+  // Genuine gaps: no computed value exists, always start unset. Toggling them is a
+  // pure manual override the user makes themselves, clearly labeled as such.
+  setToggle('ad-cbd-toggle', 'ad-cbd-label', false, { on: 'Yes (manual)', off: 'No data — set manually' });
+  setToggle('ad-slums-toggle', 'ad-slums-label', false, { on: 'Yes (manual)', off: 'No data — set manually' });
 
   const featureListEl = document.getElementById('ad-feature-list');
   const countEl = document.getElementById('ad-feature-count');
@@ -256,10 +310,13 @@ function populateAdditionalDetails(ad, allFeatures) {
   }
 }
 
-function setYesNoWithTooltip(valueId, tooltipId, flaggedField) {
-  setText(valueId, flaggedField.value ? 'Yes' : 'No');
-  const tip = document.getElementById(tooltipId);
-  if (tip) tip.textContent = flaggedField.note;
+function setToggle(toggleId, labelId, checked, labelText) {
+  const toggle = document.getElementById(toggleId);
+  const label = document.getElementById(labelId);
+  if (!toggle || !label) return;
+  toggle.checked = Boolean(checked);
+  label.textContent = toggle.checked ? labelText.on : labelText.off;
+  toggle.onchange = () => { label.textContent = toggle.checked ? labelText.on : labelText.off; };
 }
 
 function setText(id, value) {
