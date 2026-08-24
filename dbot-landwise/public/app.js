@@ -10,7 +10,6 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
 const overlayRenderer = L.canvas({ padding: 0.5 });
 
 let currentParcelLayer = null;
-let allParcelsLayer = null;
 
 const searchInput = document.getElementById('search-input');
 const searchResults = document.getElementById('search-results');
@@ -151,24 +150,38 @@ async function selectVillage(ward, village) {
   searchInput.value = village;
   const parcels = await loadWardParcels(ward);
   const matching = parcels.filter((p) => p.properties.VILLAGE === village);
-  showParcelsOnMap(matching, ward, village);
+  if (!matching.length) return;
+  const bounds = L.geoJSON({ type: 'FeatureCollection', features: matching }).getBounds();
+  map.fitBounds(bounds, { maxZoom: 17 }); // triggers moveend -> updateVisibleWardParcels renders it
 }
 
 async function selectCtsResult(ward, village, cts) {
   searchResults.classList.add('hidden');
   searchInput.value = cts;
-  const parcels = await loadWardParcels(ward);
-  const matching = parcels.filter((p) => p.properties.VILLAGE === village);
-  showParcelsOnMap(matching, ward, village);
+  await selectVillage(ward, village);
   await selectParcel(ward, village, cts);
 }
 
-// Persistent CTS-number labels on parcels, matching the reference product's map —
-// only past a zoom threshold, same reasoning as the dense reference-layer
-// categories: labeling all of a village's parcels is fine once zoomed in close
-// enough to read them, but would just be noise zoomed further out.
+// --- City-wide parcel boundaries + CTS labels, viewport-driven -----------
+// Per direct feedback: parcels should be visible on the map like the other
+// reference layers (not gated behind a search), for ALL the data we have, not
+// just a searched village. 135,342 parcels citywide is too much to load or
+// render at once, so instead: below PARCELS_MIN_ZOOM nothing renders (city
+// overview is meaningless at individual-plot granularity anyway); at or above
+// it, whichever ward(s) overlap the current viewport get their parcel file
+// loaded (cached after first fetch, same as before) and rendered, and wards
+// that scroll out of view get removed from the map (but stay cached) to keep
+// the DOM/canvas bounded. CTS labels layer on top of that, same zoom-gated
+// idea, past a tighter threshold since they need more room to read.
+const PARCELS_MIN_ZOOM = 15;
 const CTS_LABEL_MIN_ZOOM = 16;
-let ctsLabelLayer = null;
+const wardParcelLayers = new Map(); // wardCode -> { polygons: L.GeoJSON, labels: L.LayerGroup, onMap: boolean }
+let wardBoundsPromise = null;
+
+function loadWardBounds() {
+  if (!wardBoundsPromise) wardBoundsPromise = fetchJson('data/ward-bounds.json');
+  return wardBoundsPromise;
+}
 
 function parcelCentroid(geometry) {
   const ring = geometry.type === 'Polygon' ? geometry.coordinates[0] : geometry.coordinates[0][0];
@@ -177,43 +190,90 @@ function parcelCentroid(geometry) {
   return [y / ring.length, x / ring.length];
 }
 
-function showParcelsOnMap(parcels, ward, village) {
-  if (allParcelsLayer) map.removeLayer(allParcelsLayer);
-  if (ctsLabelLayer) map.removeLayer(ctsLabelLayer);
-
-  const featureCollection = {
-    type: 'FeatureCollection',
-    features: parcels.map((p) => ({
-      type: 'Feature',
-      properties: { cts: p.properties.CTS_CS_NO, ward, village },
-      geometry: p.geometry,
-    })),
-  };
-  allParcelsLayer = L.geoJSON(featureCollection, {
-    style: { color: '#0b1f3a', weight: 1, fillOpacity: 0.05 },
-    onEachFeature: (feature, layer) => {
-      layer.on('click', () => selectParcel(feature.properties.ward, feature.properties.village, feature.properties.cts));
-    },
-  }).addTo(map);
-
-  ctsLabelLayer = L.layerGroup(
-    parcels.map((p) => L.marker(parcelCentroid(p.geometry), {
-      icon: L.divIcon({ className: 'cts-label', html: p.properties.CTS_CS_NO, iconSize: null }),
-      interactive: false,
-    })),
-  );
-  if (map.getZoom() >= CTS_LABEL_MIN_ZOOM) ctsLabelLayer.addTo(map);
-
-  if (parcels.length) map.fitBounds(allParcelsLayer.getBounds(), { maxZoom: 17 });
+function boundsOverlapWard(mapBounds, wardBbox) {
+  const [minLon, minLat, maxLon, maxLat] = wardBbox;
+  return mapBounds.getWest() <= maxLon && mapBounds.getEast() >= minLon &&
+    mapBounds.getSouth() <= maxLat && mapBounds.getNorth() >= minLat;
 }
 
-map.on('zoomend', () => {
-  if (!ctsLabelLayer) return;
-  const shouldShow = map.getZoom() >= CTS_LABEL_MIN_ZOOM;
-  const isShown = map.hasLayer(ctsLabelLayer);
-  if (shouldShow && !isShown) ctsLabelLayer.addTo(map);
-  if (!shouldShow && isShown) map.removeLayer(ctsLabelLayer);
-});
+async function ensureWardParcelLayer(ward) {
+  const code = wardFileCode(ward);
+  if (wardParcelLayers.has(code)) return wardParcelLayers.get(code);
+
+  const parcels = await loadWardParcels(ward);
+  const polygons = L.geoJSON(
+    { type: 'FeatureCollection', features: parcels.map((p) => ({
+      type: 'Feature',
+      properties: { cts: p.properties.CTS_CS_NO, ward, village: p.properties.VILLAGE },
+      geometry: p.geometry,
+    })) },
+    {
+      renderer: overlayRenderer,
+      style: { color: '#0b1f3a', weight: 1, fillOpacity: 0.05 },
+      onEachFeature: (feature, layer) => {
+        layer.on('click', () => selectParcel(feature.properties.ward, feature.properties.village, feature.properties.cts));
+      },
+    },
+  );
+  const labels = L.layerGroup(parcels.map((p) => L.marker(parcelCentroid(p.geometry), {
+    icon: L.divIcon({ className: 'cts-label', html: p.properties.CTS_CS_NO, iconSize: null }),
+    interactive: false,
+  })));
+
+  const entry = { polygons, labels, onMap: false };
+  wardParcelLayers.set(code, entry);
+  return entry;
+}
+
+let parcelsEnabled = true;
+const parcelsToggleLayer = L.layerGroup(); // hooks the "Parcels" checkbox into the same layer control as the other 10
+
+// moveend can fire in quick succession (zoom animations, programmatic setView/setZoom
+// calls) faster than a previous invocation's awaited fetches resolve. Without guarding
+// against that, a slow, now-stale invocation can finish AFTER a newer one already
+// cleaned up, and re-add wards for a viewport/zoom that's no longer current — caught in
+// testing (rapid zoom out then back in left stale wards rendered). Each invocation
+// captures its own generation number and checks it's still current after every await;
+// a superseded invocation abandons itself instead of touching the map.
+let renderGeneration = 0;
+
+async function updateVisibleWardParcels() {
+  const myGeneration = ++renderGeneration;
+  const zoom = map.getZoom();
+  if (!parcelsEnabled || zoom < PARCELS_MIN_ZOOM) {
+    for (const entry of wardParcelLayers.values()) {
+      if (entry.onMap) { map.removeLayer(entry.polygons); map.removeLayer(entry.labels); entry.onMap = false; }
+    }
+    return;
+  }
+
+  const wardBounds = await loadWardBounds();
+  if (myGeneration !== renderGeneration) return; // superseded while awaiting
+
+  const mapBounds = map.getBounds();
+  const overlapping = new Set(Object.keys(wardBounds).filter((w) => boundsOverlapWard(mapBounds, wardBounds[w])));
+
+  for (const [code, entry] of wardParcelLayers) {
+    if (!overlapping.has(code.replace('-', '/')) && entry.onMap) {
+      map.removeLayer(entry.polygons);
+      map.removeLayer(entry.labels);
+      entry.onMap = false;
+    }
+  }
+
+  const showLabels = zoom >= CTS_LABEL_MIN_ZOOM;
+  for (const ward of overlapping) {
+    const entry = await ensureWardParcelLayer(ward);
+    if (myGeneration !== renderGeneration) return; // superseded mid-loop
+    if (!entry.onMap) { entry.polygons.addTo(map); entry.onMap = true; }
+    const labelsShown = map.hasLayer(entry.labels);
+    if (showLabels && !labelsShown) entry.labels.addTo(map);
+    if (!showLabels && labelsShown) map.removeLayer(entry.labels);
+  }
+}
+
+map.on('moveend', updateVisibleWardParcels);
+updateVisibleWardParcels();
 
 async function selectParcel(ward, village, cts) {
   const facts = await loadWardFacts(ward);
@@ -363,7 +423,10 @@ const MAP_LAYER_LABELS = {
   GAOTHAN: 'Gaothan/Koliwada', ADMIN: 'Admin boundaries',
 };
 
-const MAP_LAYER_DEFAULT_ON = new Set(['ADMIN', 'ZONE', 'CRZ', 'METRO', 'HEIGHT']);
+// Per direct feedback: all 10 reference layers off by default now — the
+// always-on, city-wide layer is the parcel/CTS boundary layer above instead.
+// Every category is still in the layer control, one click away.
+const MAP_LAYER_DEFAULT_ON = new Set([]);
 
 // Fields worth showing in a layer feature's popup, in priority order — the
 // property sets differ per source layer, so this just takes whichever of
@@ -384,6 +447,24 @@ function popupHtmlFor(feature) {
 
 async function loadMapLayers() {
   const layersControl = L.control.layers(null, null, { collapsed: false, position: 'topright' }).addTo(map);
+
+  // "Parcels / CTS boundaries" — on by default, above the 10 reference-layer
+  // toggles. parcelsToggleLayer itself never holds real data; it just hooks a
+  // checkbox into the shared control so this can be turned off the same way
+  // as everything else, while the actual polygons/labels are the
+  // viewport-driven per-ward layers managed by updateVisibleWardParcels.
+  parcelsToggleLayer.addTo(map);
+  layersControl.addOverlay(parcelsToggleLayer, 'Parcels / CTS boundaries');
+  map.on('overlayadd', (e) => {
+    if (e.layer !== parcelsToggleLayer) return;
+    parcelsEnabled = true;
+    updateVisibleWardParcels();
+  });
+  map.on('overlayremove', (e) => {
+    if (e.layer !== parcelsToggleLayer) return;
+    parcelsEnabled = false;
+    updateVisibleWardParcels();
+  });
 
   await Promise.all(Object.keys(MAP_LAYER_STYLES).map(async (category) => {
     let data;

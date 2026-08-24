@@ -5,6 +5,10 @@
 //   public/data/cts-index.json     - {cts, ward, village} for all 135,342 parcels, no
 //                                    geometry (~6MB) — lets the search box match a CTS
 //                                    number directly instead of only a village name
+//   public/data/ward-bounds.json   - {ward: [minLon,minLat,maxLon,maxLat]} for all 24 wards —
+//                                    lets the client figure out which ward(s) overlap the
+//                                    current map viewport without fetching every ward's
+//                                    full parcel file just to check
 //   public/data/parcels/ward_*.geojson - copies of the parcel geometry files (map rendering
 //                                        + per-village parcel listing on the client)
 //
@@ -28,6 +32,7 @@ async function main() {
   const wardFiles = (await fs.readdir(PARCELS_DIR)).filter((f) => f.endsWith('.geojson'));
   const villagesIndex = [];
   const ctsIndex = [];
+  const wardBounds = {};
 
   for (const file of wardFiles) {
     const wardCode = file.replace(/^ward_/, '').replace(/\.geojson$/, '').replace('-', '/');
@@ -35,9 +40,21 @@ async function main() {
     const { features } = JSON.parse(raw);
     const villages = new Set(features.map((f) => f.properties.VILLAGE));
     for (const village of villages) villagesIndex.push({ ward: wardCode, village });
+
+    let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
     for (const f of features) {
       ctsIndex.push({ cts: f.properties.CTS_CS_NO, ward: wardCode, village: f.properties.VILLAGE });
+      const rings = f.geometry.type === 'Polygon' ? f.geometry.coordinates : f.geometry.coordinates.flat();
+      for (const ring of rings) {
+        for (const [lon, lat] of ring) {
+          if (lon < minLon) minLon = lon;
+          if (lon > maxLon) maxLon = lon;
+          if (lat < minLat) minLat = lat;
+          if (lat > maxLat) maxLat = lat;
+        }
+      }
     }
+    wardBounds[wardCode] = [minLon, minLat, maxLon, maxLat];
 
     await fs.copyFile(path.join(PARCELS_DIR, file), path.join(OUT_DIR, 'parcels', file));
     console.log(`  copied ${file} (${features.length} parcels, ${villages.size} villages)`);
@@ -45,8 +62,9 @@ async function main() {
 
   await fs.writeFile(path.join(OUT_DIR, 'villages.json'), JSON.stringify(villagesIndex));
   await fs.writeFile(path.join(OUT_DIR, 'cts-index.json'), JSON.stringify(ctsIndex));
+  await fs.writeFile(path.join(OUT_DIR, 'ward-bounds.json'), JSON.stringify(wardBounds));
   console.log(`\nWrote wards.json, villages.json (${villagesIndex.length} ward/village pairs), ` +
-    `cts-index.json (${ctsIndex.length} parcels), and ${wardFiles.length} parcel files.`);
+    `cts-index.json (${ctsIndex.length} parcels), ward-bounds.json, and ${wardFiles.length} parcel files.`);
 }
 
 main().catch((err) => {
