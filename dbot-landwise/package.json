@@ -1,0 +1,21 @@
+{
+  "name": "dbot-landwise",
+  "version": "0.1.0",
+  "description": "DBOT Land Intelligence — standalone parcel search + DP facts, own product, not integrated with Map Studio",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "@turf/area": "^7.4.0",
+    "@turf/bbox": "^7.4.0",
+    "@turf/boolean-intersects": "^7.4.0",
+    "express": "^4.22.2"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

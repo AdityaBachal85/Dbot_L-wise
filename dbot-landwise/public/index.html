@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>DBOT Land Intelligence</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <div class="map-pane">
+      <div class="search-box">
+        <input id="search-input" type="text" placeholder="Search CTS / village" autocomplete="off" />
+        <div id="search-results" class="search-results hidden"></div>
+      </div>
+      <div id="map"></div>
+    </div>
+
+    <div class="panel" id="details-panel">
+      <div class="panel-header">
+        <div>
+          <h2 id="panel-title">Location &amp; Land Details</h2>
+          <span id="panel-subtitle" class="muted">No plot selected</span>
+        </div>
+        <button id="panel-close" class="icon-btn" aria-label="Close">&times;</button>
+      </div>
+
+      <div class="panel-body">
+        <section>
+          <h3>Location Details</h3>
+          <div class="field-list">
+            <div class="field"><label>Project</label><span id="f-project">—</span></div>
+            <div class="field"><label>City</label><span id="f-city">—</span></div>
+            <div class="field"><label>Ward</label><span id="f-ward">—</span></div>
+            <div class="field"><label>Village</label><span id="f-village">—</span></div>
+            <div class="field"><label>Zone</label><span id="f-zone">—</span></div>
+            <div class="field"><label>DP Zone</label><span id="f-dpzone">—</span></div>
+            <div class="field"><label>CTS/TPS</label><span id="f-cts">—</span></div>
+            <div class="field"><label># Plots</label><span id="f-plots">—</span></div>
+          </div>
+        </section>
+
+        <section class="editable-section" id="land-details-section">
+          <h3>Land Details</h3>
+          <div class="field-list">
+            <div class="field editable"><label>Area</label><span class="value" id="f-area">—</span><span class="unit">sq m</span><button class="edit-btn" data-field="area">&#9998;</button></div>
+            <div class="field editable"><label>Avg Width</label><span class="value" id="f-avgwidth">—</span><span class="unit">m</span><button class="edit-btn" data-field="avgwidth">&#9998;</button></div>
+            <div class="field editable"><label>Avg Elevation</label><span class="value" id="f-elevation">—</span><span class="unit">m</span><button class="edit-btn" data-field="elevation">&#9998;</button></div>
+            <div class="field editable"><label>Excluded</label><span class="value" id="f-excluded">0</span><span class="unit">sq m</span><button class="edit-btn" data-field="excluded">&#9998;</button></div>
+            <div class="field editable"><label>Abutting Road</label><span class="value" id="f-abutting">—</span><button class="edit-btn" data-field="abutting">Edit</button></div>
+            <div class="field editable"><label>Ownership</label><span class="value" id="f-ownership">—</span><button class="edit-btn" data-field="ownership">Edit</button></div>
+            <div class="field editable"><label>Development Type</label><span class="value" id="f-devtype">—</span><button class="edit-btn" data-field="devtype">Edit</button></div>
+          </div>
+        </section>
+
+        <label class="acknowledge">
+          <input type="checkbox" id="acknowledge-checkbox" />
+          I acknowledge that I cannot edit Basic details after proceeding.
+        </label>
+        <button id="continue-btn" class="btn-primary" disabled>Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
