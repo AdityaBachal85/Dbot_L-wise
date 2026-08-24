@@ -14,7 +14,8 @@
     "@turf/intersect": "^7.4.0",
     "@turf/simplify": "^7.4.0",
     "@turf/union": "^7.4.0",
-    "express": "^4.22.2"
+    "express": "^4.22.2",
+    "leaflet": "^1.9.4"
   },
   "engines": {
     "node": ">=18"
