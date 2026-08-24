@@ -4,6 +4,11 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   maxZoom: 19,
 }).addTo(map);
 
+// Single shared canvas renderer for the reference-layer overlays below — with
+// 42,000+ features across 10 categories, Leaflet's default SVG renderer (one
+// DOM node per feature) would be very slow; canvas draws them as one bitmap.
+const overlayRenderer = L.canvas({ padding: 0.5 });
+
 let currentParcelLayer = null;
 let allParcelsLayer = null;
 
@@ -234,4 +239,72 @@ function formatNumber(n) {
   return n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 }
 
+// --- City-wide reference-layer overlays -------------------------------
+// Precomputed by scripts/buildMapLayers.js: 10 categories, 42,015 features
+// total, simplified for display and stripped of housekeeping fields.
+// Deliberately excludes AKO_1060/AKO_6/AKO_55 (building heights + utility
+// data, 195,618 features) — those stay available per-parcel in the
+// Additional Land Details panel instead of as a city-wide overlay, where
+// they'd be unusable regardless of simplification. See that script's header
+// comment for the full reasoning.
+
+const MAP_LAYER_STYLES = {
+  ZONE: { color: '#5b8dd6', weight: 1, fillOpacity: 0.06 },
+  RESERVATION: { color: '#e08a2b', weight: 1, fillOpacity: 0.15 },
+  DESIGNATION: { color: '#9b6bd6', weight: 1, fillOpacity: 0.1 },
+  ROAD: { color: '#4a4a4a', weight: 1.5, fillOpacity: 0.15 },
+  HERITAGE: { color: '#a12f45', weight: 1.5, fillOpacity: 0.25 },
+  CRZ: { color: '#1f9c9c', weight: 1.5, fillOpacity: 0.15, dashArray: '4 3' },
+  HEIGHT: { color: '#c62828', weight: 1.5, fillOpacity: 0.03, dashArray: '2 4' },
+  METRO: { color: '#2e8b3d', weight: 3, fillOpacity: 0 },
+  GAOTHAN: { color: '#8a6a3a', weight: 1, fillOpacity: 0.2 },
+  ADMIN: { color: '#0b1f3a', weight: 1, fillOpacity: 0, dashArray: '6 4' },
+};
+
+const MAP_LAYER_LABELS = {
+  ZONE: 'Zones', RESERVATION: 'Reservations', DESIGNATION: 'Designations', ROAD: 'Roads',
+  HERITAGE: 'Heritage', CRZ: 'CRZ', HEIGHT: 'Height / Airport NOC', METRO: 'Metro',
+  GAOTHAN: 'Gaothan/Koliwada', ADMIN: 'Admin boundaries',
+};
+
+// Fields worth showing in a layer feature's popup, in priority order — the
+// property sets differ per source layer, so this just takes whichever of
+// these exist rather than dumping every field.
+const POPUP_FIELD_PRIORITY = [
+  'NAME', 'ROAD_NAME', 'WIDTH_RL', 'RESERVATION', 'FINAL_LABEL', 'CODE_LABEL_31',
+  'AUTHORITY', 'TYPE', 'PERMISSIBL', 'ZONE_CODE2', 'SUBURBS', 'SUBURB', 'WARD', 'VILLAGE',
+];
+
+function popupHtmlFor(feature) {
+  const p = feature.properties;
+  const rows = [`<strong>${p.label}</strong>`];
+  for (const key of POPUP_FIELD_PRIORITY) {
+    if (p[key] != null && p[key] !== '') rows.push(`${key}: ${p[key]}`);
+  }
+  return rows.join('<br>');
+}
+
+async function loadMapLayers() {
+  const layersControl = L.control.layers(null, null, { collapsed: false, position: 'topright' }).addTo(map);
+
+  await Promise.all(Object.keys(MAP_LAYER_STYLES).map(async (category) => {
+    let data;
+    try {
+      data = await fetchJson(`data/mapLayers/${category}.geojson`);
+    } catch (err) {
+      console.error(`Failed to load map layer ${category}:`, err);
+      return;
+    }
+    const style = MAP_LAYER_STYLES[category];
+    const layer = L.geoJSON(data, {
+      renderer: overlayRenderer,
+      style: () => style,
+      pointToLayer: (feature, latlng) => L.circleMarker(latlng, { ...style, radius: 4 }),
+      onEachFeature: (feature, layer) => layer.bindPopup(popupHtmlFor(feature)),
+    }).addTo(map);
+    layersControl.addOverlay(layer, `${MAP_LAYER_LABELS[category]} (${data.features.length})`);
+  }));
+}
+
+loadMapLayers();
 clearSelection();
