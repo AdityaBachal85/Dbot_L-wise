@@ -1,0 +1,15 @@
+{
+  "name": "dbot-scheme-engine",
+  "version": "0.1.0",
+  "description": "DBOT Land Intelligence — deterministic DCPR 2034 scheme-eligibility engine. Standalone module: consumes parcel + building facts, never fetches GIS data itself, never lets an LLM decide eligibility.",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "UNLICENSED",
+  "private": true
+}
