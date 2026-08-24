@@ -45,6 +45,7 @@ function clearSelection() {
 // the Express version used server-side.
 
 let villagesIndexPromise = null;
+let ctsIndexPromise = null;
 const wardParcelsCache = new Map(); // wardCode -> FeatureCollection.features
 const wardFactsCache = new Map(); // wardCode -> { "village|cts": facts }
 
@@ -61,6 +62,11 @@ async function fetchJson(url) {
 function loadVillagesIndex() {
   if (!villagesIndexPromise) villagesIndexPromise = fetchJson('data/villages.json');
   return villagesIndexPromise;
+}
+
+function loadCtsIndex() {
+  if (!ctsIndexPromise) ctsIndexPromise = fetchJson('data/cts-index.json');
+  return ctsIndexPromise;
 }
 
 async function loadWardParcels(ward) {
@@ -89,10 +95,23 @@ searchInput.addEventListener('input', () => {
 });
 
 async function runSearch(query) {
-  const villages = await loadVillagesIndex();
   const q = query.toLowerCase();
-  const matches = villages.filter((v) => v.village.toLowerCase().includes(q));
-  renderSearchResults(matches.slice(0, 15));
+  const [villages, ctsParcels] = await Promise.all([loadVillagesIndex(), loadCtsIndex()]);
+
+  const villageMatches = villages
+    .filter((v) => v.village.toLowerCase().includes(q))
+    .map((v) => ({ type: 'village', ...v }));
+
+  // CTS numbers are short and often numeric/alphanumeric (e.g. "97B", "1/1061") —
+  // require at least 2 chars (already enforced by the input listener) so this
+  // doesn't fire on a single keystroke, but otherwise match anywhere in the
+  // CTS/CS number, same substring behavior as village search.
+  const ctsMatches = ctsParcels
+    .filter((p) => p.cts && p.cts.toLowerCase().includes(q))
+    .slice(0, 15)
+    .map((p) => ({ type: 'cts', ...p }));
+
+  renderSearchResults([...ctsMatches, ...villageMatches].slice(0, 15));
 }
 
 function renderSearchResults(matches) {
@@ -101,8 +120,13 @@ function renderSearchResults(matches) {
   for (const m of matches) {
     const div = document.createElement('div');
     div.className = 'result-item';
-    div.textContent = `${m.village} (Ward ${m.ward})`;
-    div.addEventListener('click', () => selectVillage(m.ward, m.village));
+    if (m.type === 'cts') {
+      div.textContent = `CTS ${m.cts} — ${m.village} (Ward ${m.ward})`;
+      div.addEventListener('click', () => selectCtsResult(m.ward, m.village, m.cts));
+    } else {
+      div.textContent = `${m.village} (Ward ${m.ward})`;
+      div.addEventListener('click', () => selectVillage(m.ward, m.village));
+    }
     searchResults.appendChild(div);
   }
   searchResults.classList.remove('hidden');
@@ -114,6 +138,15 @@ async function selectVillage(ward, village) {
   const parcels = await loadWardParcels(ward);
   const matching = parcels.filter((p) => p.properties.VILLAGE === village);
   showParcelsOnMap(matching, ward, village);
+}
+
+async function selectCtsResult(ward, village, cts) {
+  searchResults.classList.add('hidden');
+  searchInput.value = cts;
+  const parcels = await loadWardParcels(ward);
+  const matching = parcels.filter((p) => p.properties.VILLAGE === village);
+  showParcelsOnMap(matching, ward, village);
+  await selectParcel(ward, village, cts);
 }
 
 function showParcelsOnMap(parcels, ward, village) {
@@ -248,16 +281,22 @@ function formatNumber(n) {
 // they'd be unusable regardless of simplification. See that script's header
 // comment for the full reasoning.
 
+// Lighter than the first pass — thin strokes, low fill — plus only the
+// boundary-type / lower-density categories are ON by default. The dense
+// ones (reservations, designations, roads, heritage, gaothan — thousands
+// of small polygons each) are still available with zero extra clicks
+// beyond opening the layer control, just not pre-loaded on top of each
+// other by default, per direct feedback that all-10-at-once reads as messy.
 const MAP_LAYER_STYLES = {
-  ZONE: { color: '#5b8dd6', weight: 1, fillOpacity: 0.06 },
-  RESERVATION: { color: '#e08a2b', weight: 1, fillOpacity: 0.15 },
-  DESIGNATION: { color: '#9b6bd6', weight: 1, fillOpacity: 0.1 },
-  ROAD: { color: '#4a4a4a', weight: 1.5, fillOpacity: 0.15 },
-  HERITAGE: { color: '#a12f45', weight: 1.5, fillOpacity: 0.25 },
+  ZONE: { color: '#5b8dd6', weight: 0.6, fillOpacity: 0.05 },
+  RESERVATION: { color: '#e08a2b', weight: 0.6, fillOpacity: 0.12 },
+  DESIGNATION: { color: '#9b6bd6', weight: 0.6, fillOpacity: 0.08 },
+  ROAD: { color: '#4a4a4a', weight: 0.8, fillOpacity: 0.1 },
+  HERITAGE: { color: '#a12f45', weight: 1, fillOpacity: 0.25 },
   CRZ: { color: '#1f9c9c', weight: 1.5, fillOpacity: 0.15, dashArray: '4 3' },
-  HEIGHT: { color: '#c62828', weight: 1.5, fillOpacity: 0.03, dashArray: '2 4' },
-  METRO: { color: '#2e8b3d', weight: 3, fillOpacity: 0 },
-  GAOTHAN: { color: '#8a6a3a', weight: 1, fillOpacity: 0.2 },
+  HEIGHT: { color: '#c62828', weight: 1, fillOpacity: 0.02, dashArray: '2 4' },
+  METRO: { color: '#2e8b3d', weight: 2.5, fillOpacity: 0 },
+  GAOTHAN: { color: '#8a6a3a', weight: 0.8, fillOpacity: 0.18 },
   ADMIN: { color: '#0b1f3a', weight: 1, fillOpacity: 0, dashArray: '6 4' },
 };
 
@@ -266,6 +305,8 @@ const MAP_LAYER_LABELS = {
   HERITAGE: 'Heritage', CRZ: 'CRZ', HEIGHT: 'Height / Airport NOC', METRO: 'Metro',
   GAOTHAN: 'Gaothan/Koliwada', ADMIN: 'Admin boundaries',
 };
+
+const MAP_LAYER_DEFAULT_ON = new Set(['ADMIN', 'ZONE', 'CRZ', 'METRO', 'HEIGHT']);
 
 // Fields worth showing in a layer feature's popup, in priority order — the
 // property sets differ per source layer, so this just takes whichever of
@@ -301,7 +342,8 @@ async function loadMapLayers() {
       style: () => style,
       pointToLayer: (feature, latlng) => L.circleMarker(latlng, { ...style, radius: 4 }),
       onEachFeature: (feature, layer) => layer.bindPopup(popupHtmlFor(feature)),
-    }).addTo(map);
+    });
+    if (MAP_LAYER_DEFAULT_ON.has(category)) layer.addTo(map);
     layersControl.addOverlay(layer, `${MAP_LAYER_LABELS[category]} (${data.features.length})`);
   }));
 }
