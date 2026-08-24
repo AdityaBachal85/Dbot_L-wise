@@ -16,8 +16,39 @@ import { area as turfArea } from '@turf/area';
 import { bbox } from '@turf/bbox';
 import { booleanIntersects } from '@turf/boolean-intersects';
 import { intersect } from '@turf/intersect';
+import { simplify } from '@turf/simplify';
 import { featureCollection } from '@turf/helpers';
 import { LAYERS } from '../../src/config/layers.js';
+
+// A handful of ROAD-layer features (DP/44 "existing road") represent an entire
+// ward's road network as ONE polygon with 20,000-42,000 vertices — measured
+// directly against the real downloaded data, not assumed. @turf/intersect
+// (polygon clipping) on a feature that size, run against every parcel whose
+// bbox falls in that ward (i.e. nearly every parcel, since the feature's own
+// bbox spans the whole ward), made the full-city run balloon from an estimated
+// ~2.5h to ~16h in testing. Reservation-layer geometry never gets this large
+// (measured max ~1,020 vertices) — this simplification only fires for the
+// small number of genuinely oversized road polygons.
+const SIMPLIFY_VERTEX_THRESHOLD = 500;
+const SIMPLIFY_TOLERANCE_DEG = 0.00003; // ~3m at Mumbai's latitude
+
+function vertexCount(geometry) {
+  // Only Polygon/MultiPolygon rings are meaningful here — computeOverlapAreaSqm
+  // only ever runs @turf/intersect on those two types anyway (see the geom.type
+  // check there). A LineString's `coordinates` is a flat array of [lon,lat]
+  // pairs, not an array of rings — reusing the Polygon logic on it silently
+  // miscounts (each pair's own length of 2 gets summed as if it were a ring),
+  // which is what caused DP_193/194 (polyline road-width layers, same ROAD
+  // category as the actual road polygons) to be wrongly flagged as huge.
+  if (geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon') return 0;
+  const rings = geometry.type === 'Polygon' ? geometry.coordinates : geometry.coordinates.flat();
+  return rings.reduce((s, r) => s + r.length, 0);
+}
+
+function simplifyIfHuge(feature) {
+  if (vertexCount(feature.geometry) <= SIMPLIFY_VERTEX_THRESHOLD) return feature;
+  return simplify(feature, { tolerance: SIMPLIFY_TOLERANCE_DEG, highQuality: false });
+}
 
 // Categories where the brief calls for a real geometric overlap AREA, not just a
 // yes/no touch (e.g. "Area under DP Road/Setback", "Area under Reservations" —
@@ -27,10 +58,15 @@ import { LAYERS } from '../../src/config/layers.js';
 const OVERLAP_AREA_CATEGORIES = new Set(['ROAD', 'RESERVATION']);
 
 function computeOverlapAreaSqm(parcelFeature, layerFeature) {
-  const geomType = layerFeature.geometry?.type;
-  if (geomType !== 'Polygon' && geomType !== 'MultiPolygon') return null;
+  // Use the pre-simplified geometry for the small number of oversized road
+  // polygons (see simplifyIfHuge) — everything else uses its real, unsimplified
+  // geometry. Hit detection (booleanIntersects, elsewhere) always uses the real
+  // geometry; only this area figure is affected, and only for those features.
+  const geom = layerFeature._areaGeom ?? layerFeature.geometry;
+  if (geom?.type !== 'Polygon' && geom?.type !== 'MultiPolygon') return null;
+  const simplifiedLayerFeature = geom === layerFeature.geometry ? layerFeature : { type: 'Feature', properties: {}, geometry: geom };
   try {
-    const clipped = intersect(featureCollection([parcelFeature, layerFeature]));
+    const clipped = intersect(featureCollection([parcelFeature, simplifiedLayerFeature]));
     if (!clipped) return null;
     return Math.round(turfArea(clipped) * 100) / 100;
   } catch {
@@ -135,9 +171,22 @@ async function loadReferenceLayers() {
     const name = file.replace(/\.geojson$/, '');
     const meta = layerMetaFor(name);
     const withBbox = features.filter((f) => f.geometry).map((f) => ({ ...f, _bbox: bbox(f) }));
+
+    let simplifiedCount = 0;
+    if (OVERLAP_AREA_CATEGORIES.has(meta.category)) {
+      for (const f of withBbox) {
+        const simplified = simplifyIfHuge(f);
+        if (simplified.geometry !== f.geometry) {
+          f._areaGeom = simplified.geometry;
+          simplifiedCount++;
+        }
+      }
+    }
+
     const grid = buildGridIndex(withBbox);
     layers.push({ name, meta, features: withBbox, grid });
-    console.log(`  loaded ${name}: ${withBbox.length} features, ${grid.size} grid cells`);
+    console.log(`  loaded ${name}: ${withBbox.length} features, ${grid.size} grid cells` +
+      (simplifiedCount ? `, ${simplifiedCount} simplified for area calc` : ''));
   }
   return layers;
 }

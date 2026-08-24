@@ -12,6 +12,7 @@
     "@turf/bbox": "^7.4.0",
     "@turf/boolean-intersects": "^7.4.0",
     "@turf/intersect": "^7.4.0",
+    "@turf/simplify": "^7.4.0",
     "@turf/union": "^7.4.0",
     "express": "^4.22.2"
   },
