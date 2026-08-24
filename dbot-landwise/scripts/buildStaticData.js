@@ -295,7 +295,12 @@ function buildFacts(parcel, hits) {
 }
 
 async function processWard(wardFile, layers) {
-  const wardCode = wardFile.replace(/^ward_/, '').replace(/\.geojson$/, '');
+  // wardCode must be slash-form ("F/N") to match wards.json/villages.json convention
+  // used everywhere else in the app (buildFastStaticAssets.js, app.js's wardFileCode) —
+  // this used to stay dash-form ("F-N") straight from the filename, which produced a
+  // villages.json inconsistent with the rest of the site (caught by diffing this run's
+  // output against the already-correct one from buildFastStaticAssets.js).
+  const wardCode = wardFile.replace(/^ward_/, '').replace(/\.geojson$/, '').replace('-', '/');
   const outPath = path.join(OUT_DIR, 'facts', `ward_${wardCode.replace('/', '-')}.json`);
 
   // Resumable, same convention as examples/downloadAllParcels.js in the sibling
