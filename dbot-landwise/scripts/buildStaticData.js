@@ -81,7 +81,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const LAYERS_DIR = path.join(REPO_ROOT, 'data', 'layers');
 const PARCELS_DIR = path.join(REPO_ROOT, 'data', 'parcels');
-const OUT_DIR = path.join(__dirname, '..', 'public', 'data');
+const OUT_DIR = path.join(__dirname, '..', '..', 'docs', 'data');
 
 const onlyWard = process.argv[2] || null; // e.g. "B" — process one ward file for a quick test
 

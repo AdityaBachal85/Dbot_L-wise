@@ -26,7 +26,7 @@ import { LAYERS } from '../../src/config/layers.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const LAYERS_DIR = path.join(REPO_ROOT, 'data', 'layers');
-const OUT_DIR = path.join(__dirname, '..', 'public', 'data', 'mapLayers');
+const OUT_DIR = path.join(__dirname, '..', '..', 'docs', 'data', 'mapLayers');
 
 const EXCLUDED_LAYER_NAMES = new Set(['AKO_1060', 'AKO_6', 'AKO_55']);
 const EXCLUDED_CATEGORIES = new Set(['CADASTRAL', 'UTILITY', 'UNKNOWN']);

@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const PARCELS_DIR = path.join(REPO_ROOT, 'data', 'parcels');
-const OUT_DIR = path.join(__dirname, '..', 'public', 'data');
+const OUT_DIR = path.join(__dirname, '..', '..', 'docs', 'data');
 
 async function main() {
   await fs.mkdir(path.join(OUT_DIR, 'parcels'), { recursive: true });

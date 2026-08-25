@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.resolve(__dirname, '..', '..', 'scheme-engine', 'src');
-const DEST = path.join(__dirname, '..', 'public', 'vendor', 'scheme-engine', 'src');
+const DEST = path.join(__dirname, '..', '..', 'docs', 'vendor', 'scheme-engine', 'src');
 
 await fs.rm(DEST, { recursive: true, force: true });
 await fs.cp(SRC, DEST, { recursive: true });
