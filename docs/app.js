@@ -3,10 +3,50 @@ import { evaluateAllSchemes } from './vendor/scheme-engine/src/index.js';
 // zoomControl:false + added back at bottomleft — the default topleft position
 // sat directly under the search box. Scale bar goes in the same corner.
 const map = L.map('map', { zoomControl: false }).setView([19.076, 72.877], 12); // Mumbai default
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+
+// Base layers — CARTO stays the default (free, unmetered) so the map costs
+// nothing to just open. Mapbox styles are opt-in alternates the user picks
+// from the layer control; since Leaflet base layers are mutually exclusive
+// (radio-button group), at most one tile source is ever active/requesting
+// at a time — switching removes the previous layer's tiles entirely rather
+// than stacking a second set of requests on top.
+const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
   maxZoom: 19,
-}).addTo(map);
+});
+
+// One token constant, reused to build each style's URL template — the token
+// itself is a single string value substituted into a template, not a
+// separate "call"; the actual per-tile requests below are the same z/x/y
+// pattern every slippy map (CARTO included) already makes to cover the
+// viewport, this doesn't add extra token usage beyond whichever one style
+// is actively selected. Mapbox tiles are natively 512px, hence
+// tileSize:512 + zoomOffset:-1 to line up with Leaflet's 256px zoom scale.
+//
+// Left blank deliberately — GitHub's push protection flagged the token
+// pasted in chat as a possible Mapbox SECRET (not public) token, so it was
+// never committed. Once a confirmed public-scope, URL-restricted token
+// exists (account.mapbox.com/access-tokens), paste it here; until then the
+// Mapbox options are simply omitted from the layer control below and CARTO
+// remains the only base layer, so the map keeps working either way.
+const MAPBOX_TOKEN = '';
+const MAPBOX_ATTRIBUTION = '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; OpenStreetMap contributors';
+function mapboxTileLayer(styleId) {
+  return L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/${styleId}/tiles/{z}/{x}/{y}{r}?access_token=${MAPBOX_TOKEN}`, {
+    attribution: MAPBOX_ATTRIBUTION,
+    tileSize: 512,
+    zoomOffset: -1,
+    maxZoom: 22,
+    updateWhenZooming: false, // don't fire new tile requests mid-zoom-animation, only once it settles
+  });
+}
+const baseLayers = { 'CARTO Light (default)': cartoLight };
+if (MAPBOX_TOKEN) {
+  baseLayers['Mapbox Streets'] = mapboxTileLayer('streets-v12');
+  baseLayers['Mapbox Satellite'] = mapboxTileLayer('satellite-streets-v12');
+}
+cartoLight.addTo(map);
+
 L.control.zoom({ position: 'bottomleft' }).addTo(map);
 L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
 
@@ -861,7 +901,7 @@ function popupHtmlFor(feature) {
 }
 
 async function loadMapLayers() {
-  const layersControl = L.control.layers(null, null, { collapsed: false, position: 'topright' }).addTo(map);
+  const layersControl = L.control.layers(baseLayers, null, { collapsed: false, position: 'topright' }).addTo(map);
 
   // "Parcels / CTS boundaries" — on by default, above the 10 reference-layer
   // toggles. parcelsToggleLayer itself never holds real data; it just hooks a
