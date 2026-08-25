@@ -180,7 +180,7 @@ async function selectCtsResult(ward, village, cts) {
 // idea, past a tighter threshold since they need more room to read.
 const PARCELS_MIN_ZOOM = 15;
 const CTS_LABEL_MIN_ZOOM = 16;
-const wardParcelLayers = new Map(); // wardCode -> { polygons: L.GeoJSON, labels: L.LayerGroup, onMap: boolean }
+const wardParcelLayers = new Map(); // wardCode -> { parcels, polygons: L.GeoJSON, onMap: boolean }
 let wardBoundsPromise = null;
 
 function loadWardBounds() {
@@ -220,18 +220,26 @@ async function ensureWardParcelLayer(ward) {
       },
     },
   );
-  const labels = L.layerGroup(parcels.map((p) => L.marker(parcelCentroid(p.geometry), {
-    icon: L.divIcon({ className: 'cts-label', html: p.properties.CTS_CS_NO, iconSize: null }),
-    interactive: false,
-  })));
 
-  const entry = { polygons, labels, onMap: false };
+  // parcels stays around (not just the built polygon layer) so the viewport-scoped
+  // label pass below can filter it without re-fetching.
+  const entry = { parcels, polygons, onMap: false };
   wardParcelLayers.set(code, entry);
   return entry;
 }
 
 let parcelsEnabled = true;
 const parcelsToggleLayer = L.layerGroup(); // hooks the "Parcels" checkbox into the same layer control as the other 10
+
+// CTS labels are individual DOM markers (Leaflet has no built-in canvas text
+// primitive), so unlike the polygons above they can't just be "the whole ward,
+// canvas-rendered" — a dense ward (P/N has 13,927 parcels, K/W has 11,448) would
+// mean that many DOM nodes the instant the ward loads, regardless of how much of
+// it is actually on screen. That was the real lag: labels for an entire ward were
+// being created up front. Fixed by only ever creating markers for parcels whose
+// centroid falls inside the CURRENT viewport, rebuilt on every moveend, instead of
+// once per ward at load time.
+const labelLayer = L.layerGroup();
 
 // moveend can fire in quick succession (zoom animations, programmatic setView/setZoom
 // calls) faster than a previous invocation's awaited fetches resolve. Without guarding
@@ -242,13 +250,20 @@ const parcelsToggleLayer = L.layerGroup(); // hooks the "Parcels" checkbox into 
 // a superseded invocation abandons itself instead of touching the map.
 let renderGeneration = 0;
 
+function centroidInBounds(centroid, bounds) {
+  const [lat, lon] = centroid;
+  return lat >= bounds.getSouth() && lat <= bounds.getNorth() && lon >= bounds.getWest() && lon <= bounds.getEast();
+}
+
 async function updateVisibleWardParcels() {
   const myGeneration = ++renderGeneration;
   const zoom = map.getZoom();
   if (!parcelsEnabled || zoom < PARCELS_MIN_ZOOM) {
     for (const entry of wardParcelLayers.values()) {
-      if (entry.onMap) { map.removeLayer(entry.polygons); map.removeLayer(entry.labels); entry.onMap = false; }
+      if (entry.onMap) { map.removeLayer(entry.polygons); entry.onMap = false; }
     }
+    if (map.hasLayer(labelLayer)) map.removeLayer(labelLayer);
+    labelLayer.clearLayers();
     return;
   }
 
@@ -261,19 +276,35 @@ async function updateVisibleWardParcels() {
   for (const [code, entry] of wardParcelLayers) {
     if (!overlapping.has(code.replace('-', '/')) && entry.onMap) {
       map.removeLayer(entry.polygons);
-      map.removeLayer(entry.labels);
       entry.onMap = false;
     }
   }
 
-  const showLabels = zoom >= CTS_LABEL_MIN_ZOOM;
   for (const ward of overlapping) {
     const entry = await ensureWardParcelLayer(ward);
     if (myGeneration !== renderGeneration) return; // superseded mid-loop
     if (!entry.onMap) { entry.polygons.addTo(map); entry.onMap = true; }
-    const labelsShown = map.hasLayer(entry.labels);
-    if (showLabels && !labelsShown) entry.labels.addTo(map);
-    if (!showLabels && labelsShown) map.removeLayer(entry.labels);
+  }
+  if (myGeneration !== renderGeneration) return;
+
+  const showLabels = zoom >= CTS_LABEL_MIN_ZOOM;
+  labelLayer.clearLayers();
+  if (showLabels) {
+    for (const ward of overlapping) {
+      const entry = wardParcelLayers.get(wardFileCode(ward));
+      if (!entry) continue;
+      for (const p of entry.parcels) {
+        const centroid = parcelCentroid(p.geometry);
+        if (!centroidInBounds(centroid, mapBounds)) continue;
+        L.marker(centroid, {
+          icon: L.divIcon({ className: 'cts-label', html: p.properties.CTS_CS_NO, iconSize: null }),
+          interactive: false,
+        }).addTo(labelLayer);
+      }
+    }
+    if (!map.hasLayer(labelLayer)) labelLayer.addTo(map);
+  } else if (map.hasLayer(labelLayer)) {
+    map.removeLayer(labelLayer);
   }
 }
 
@@ -644,3 +675,8 @@ async function loadMapLayers() {
 
 loadMapLayers();
 clearSelection();
+
+// Module scripts don't leak top-level bindings onto window the way classic scripts
+// do — exposed deliberately here for browser-console debugging and headless-browser
+// testing, not used by any app code itself.
+window.__app = { map, wardParcelLayers, labelLayer };
