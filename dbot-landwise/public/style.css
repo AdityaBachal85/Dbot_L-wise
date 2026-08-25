@@ -167,6 +167,28 @@ section h3 {
 .accordion-body { padding: 4px 0 12px; }
 .muted.small { font-size: 12px; line-height: 1.5; }
 
+/* Scheme Comparison — one card per registered scheme, four-state verdict badge
+   (matches the brief's 🟢/🟡/🔴/⚪ model), reasons and source trail underneath. */
+.scheme-card {
+  border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px;
+  margin-bottom: 8px; background: #fff;
+}
+.scheme-card-header { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.scheme-card-title { font-size: 13px; font-weight: 600; color: var(--dbot-navy); }
+.scheme-badge {
+  font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 10px;
+  white-space: nowrap; flex: 0 0 auto;
+}
+.scheme-badge.ELIGIBLE { background: #e3f3e6; color: #1f7a34; }
+.scheme-badge.POTENTIALLY_ELIGIBLE { background: #fdf3d8; color: #8a6a13; }
+.scheme-badge.NOT_ELIGIBLE { background: #f3e6e6; color: #9c3a3a; }
+.scheme-badge.NOT_EVALUABLE { background: #eceae4; color: var(--text-muted); }
+.scheme-card-reasons { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: var(--text-muted); line-height: 1.5; }
+.scheme-card-data { margin-top: 8px; font-size: 12px; }
+.scheme-card-data table { border-collapse: collapse; width: 100%; }
+.scheme-card-data td { padding: 2px 6px 2px 0; }
+.scheme-card-data td:last-child { text-align: right; font-weight: 500; }
+
 #all-features-details { margin-top: 12px; font-size: 12px; }
 #all-features-details summary { cursor: pointer; color: var(--dbot-navy); font-weight: 600; }
 .feature-list { max-height: 260px; overflow-y: auto; margin-top: 8px; }

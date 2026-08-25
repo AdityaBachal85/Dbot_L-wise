@@ -1,3 +1,5 @@
+import { evaluateAllSchemes } from './vendor/scheme-engine/src/index.js';
+
 const map = L.map('map', { zoomControl: true }).setView([19.076, 72.877], 12); // Mumbai default
 L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
@@ -48,6 +50,9 @@ function clearSelection() {
   additionalDetailsSection.classList.add('hidden');
   acknowledgeCheckbox.checked = false;
   continueBtn.disabled = true;
+  currentParcelData = null;
+  const schemeListEl = document.getElementById('scheme-comparison-list');
+  if (schemeListEl) schemeListEl.innerHTML = '';
 }
 
 // --- Static data access -----------------------------------------------
@@ -325,6 +330,157 @@ function populatePanel(details) {
   setText('f-devtype', land.developmentType ?? 'Enter manually');
 
   populateAdditionalDetails(details.additionalDetails, details.allIntersectingFeatures);
+
+  currentParcelData = details;
+  renderSchemeComparison();
+}
+
+// --- Scheme Engine wiring -----------------------------------------------
+// scheme-engine is a standalone, deterministic module (see /scheme-engine in the
+// repo root) — vendored here as plain browser ES modules (public/vendor/scheme-engine/,
+// kept in sync by scripts/syncSchemeEngine.js) since GitHub Pages has no bundler.
+// Rules decide eligibility; this file only maps our precomputed facts into the
+// shape evaluateAllSchemes expects and renders the result — no eligibility logic
+// lives here.
+
+let currentParcelData = null;
+
+// DP_0's ZONE_CODE2 values, confirmed against the actual downloaded layer data:
+// I, NA, NDZ, R, G-Z, "NDZ/SDZ (Slum)", C, SDZ. Only R/C and I map cleanly onto
+// the Scheme Engine's RESIDENTIAL_COMMERCIAL/INDUSTRIAL — the rest (No
+// Development Zone, Special Development Zone, Green Zone, slum-designated) don't
+// fit either category, so they stay unmapped (null) rather than forced into one.
+function deriveDpZoneUse(allFeatures) {
+  const code = allFeatures.find((f) => f.layer === 'DP_0')?.properties?.ZONE_CODE2;
+  if (code === 'R' || code === 'C') return 'RESIDENTIAL_COMMERCIAL';
+  if (code === 'I') return 'INDUSTRIAL';
+  return null;
+}
+
+function deriveZoneClassification(allFeatures) {
+  const dp74 = allFeatures.find((f) => f.layer === 'DP_74');
+  const dp0 = allFeatures.find((f) => f.layer === 'DP_0');
+  if (dp74?.properties?.SUBURB === 'ISLAND CITY') return 'ISLAND_CITY';
+  if (dp0?.properties?.SUBURBS === 'CITY') return 'ISLAND_CITY';
+  if (dp74 || dp0) return 'SUBURBS';
+  return null;
+}
+
+// DP_193/DP_194 ("Regular Line road width") carry WIDTH_RL as an inconsistently
+// formatted string ("45.70M", "36.60 M", "36.60") -- parseFloat handles all of
+// those the same way since it just stops at the first non-numeric character.
+// A parcel touching two road-width features with DIFFERENT values is a real
+// ambiguity (which one governs?) with no sourced tie-breaking rule -- stays
+// null rather than picking one arbitrarily, same "flag, don't silently
+// resolve" rule as everywhere else in this project.
+function deriveRoadWidthM(allFeatures) {
+  const widths = new Set();
+  for (const f of allFeatures) {
+    if (f.layer === 'DP_193' || f.layer === 'DP_194') {
+      const n = parseFloat(f.properties?.WIDTH_RL);
+      if (!Number.isNaN(n)) widths.add(n);
+    }
+  }
+  return widths.size === 1 ? [...widths][0] : null;
+}
+
+function deriveParcelFacts(details) {
+  const allFeatures = details.allIntersectingFeatures ?? [];
+  return {
+    areaSqm: details.land?.area ?? null,
+    zoneClassification: deriveZoneClassification(allFeatures),
+    dpZoneUse: deriveDpZoneUse(allFeatures),
+    roadWidthM: deriveRoadWidthM(allFeatures),
+    isBARCArea: null, // no signal for this special case in the data we have
+  };
+}
+
+function readBuildingFactsForm() {
+  const num = (id) => { const v = document.getElementById(id).value; return v === '' ? null : Number(v); };
+  const bool = (id) => { const v = document.getElementById(id).value; return v === '' ? null : v === 'true'; };
+  const str = (id) => { const v = document.getElementById(id).value; return v === '' ? null : v; };
+  return {
+    buildingAgeYears: num('bf-age'),
+    isCessed: bool('bf-cessed'),
+    tenantOccupancyCount: num('bf-tenants'),
+    isSocietyRegistered: bool('bf-society'),
+    ownershipType: str('bf-ownership'),
+    developmentType: str('bf-devtype'),
+  };
+}
+
+document.querySelectorAll('#project-details-body input, #project-details-body select').forEach((el) => {
+  el.addEventListener('change', renderSchemeComparison);
+});
+
+function renderSchemeComparison() {
+  const listEl = document.getElementById('scheme-comparison-list');
+  if (!currentParcelData) { listEl.innerHTML = ''; return; }
+
+  const parcelFacts = deriveParcelFacts(currentParcelData);
+  const buildingFacts = readBuildingFactsForm();
+  const results = evaluateAllSchemes(parcelFacts, buildingFacts);
+
+  listEl.innerHTML = '';
+  for (const result of results) {
+    const card = document.createElement('div');
+    card.className = 'scheme-card';
+
+    const header = document.createElement('div');
+    header.className = 'scheme-card-header';
+    const title = document.createElement('span');
+    title.className = 'scheme-card-title';
+    title.textContent = `${result.title} (${result.schemeId.replace('REG_', '')})`;
+    const badge = document.createElement('span');
+    badge.className = `scheme-badge ${result.status}`;
+    badge.textContent = SCHEME_STATUS_LABELS[result.status] ?? result.status;
+    header.appendChild(title);
+    header.appendChild(badge);
+    card.appendChild(header);
+
+    if (result.reasons?.length) {
+      const list = document.createElement('ul');
+      list.className = 'scheme-card-reasons';
+      for (const reason of result.reasons) {
+        const li = document.createElement('li');
+        li.textContent = reason.text;
+        list.appendChild(li);
+      }
+      card.appendChild(list);
+    }
+
+    if (result.data) {
+      const dataEl = document.createElement('div');
+      dataEl.className = 'scheme-card-data';
+      const table = document.createElement('table');
+      for (const [key, value] of Object.entries(result.data)) {
+        if (value == null) continue;
+        const row = document.createElement('tr');
+        const keyCell = document.createElement('td');
+        keyCell.textContent = fieldLabel(key);
+        const valCell = document.createElement('td');
+        valCell.textContent = typeof value === 'number' ? formatNumber(value) : String(value);
+        row.appendChild(keyCell);
+        row.appendChild(valCell);
+        table.appendChild(row);
+      }
+      dataEl.appendChild(table);
+      card.appendChild(dataEl);
+    }
+
+    listEl.appendChild(card);
+  }
+}
+
+const SCHEME_STATUS_LABELS = {
+  ELIGIBLE: '🟢 Eligible',
+  POTENTIALLY_ELIGIBLE: '🟡 Potentially Eligible',
+  NOT_ELIGIBLE: '🔴 Not Eligible',
+  NOT_EVALUABLE: '⚪ Not Evaluable',
+};
+
+function fieldLabel(key) {
+  return key.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase());
 }
 
 function populateAdditionalDetails(ad, allFeatures) {

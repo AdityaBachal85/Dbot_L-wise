@@ -111,13 +111,40 @@
         <section class="accordion-section">
           <button class="accordion-toggle" data-target="project-details-body">Project Details <span class="accordion-caret">▾</span></button>
           <div class="accordion-body hidden" id="project-details-body">
-            <p class="muted small">Project name, developer, and consultant details — pure user entry, not derived from GIS. Not yet built.</p>
+            <p class="muted small">Building/project facts — never derivable from GIS, always your input. Feeds the Scheme Comparison in Regulatory Details below.</p>
+            <div class="field-list">
+              <div class="field editable"><label>Building Age</label><input type="number" class="value" id="bf-age" min="0" placeholder="years" /></div>
+              <div class="field editable">
+                <label>Cessed Building</label>
+                <select class="value" id="bf-cessed"><option value="">Unknown</option><option value="true">Yes</option><option value="false">No</option></select>
+              </div>
+              <div class="field editable"><label>Tenant / Occupancy Count</label><input type="number" class="value" id="bf-tenants" min="0" /></div>
+              <div class="field editable">
+                <label>Society Registered</label>
+                <select class="value" id="bf-society"><option value="">Unknown</option><option value="true">Yes</option><option value="false">No</option></select>
+              </div>
+              <div class="field editable">
+                <label>Ownership Type</label>
+                <select class="value" id="bf-ownership">
+                  <option value="">Unknown</option>
+                  <option value="PRIVATE_FREEHOLD">Private (Freehold)</option>
+                  <option value="PRIVATE_LEASEHOLD">Private (Leasehold)</option>
+                  <option value="GOVERNMENT">Government</option>
+                  <option value="MHADA">MHADA</option>
+                </select>
+              </div>
+              <div class="field editable">
+                <label>Development Type</label>
+                <select class="value" id="bf-devtype"><option value="">Unknown</option><option value="GREENFIELD">Greenfield</option><option value="REDEVELOPMENT">Redevelopment</option></select>
+              </div>
+            </div>
           </div>
         </section>
         <section class="accordion-section">
           <button class="accordion-toggle" data-target="regulatory-details-body">Regulatory Details <span class="accordion-caret">▾</span></button>
           <div class="accordion-body hidden" id="regulatory-details-body">
-            <p class="muted small">DCPR scheme selection and eligibility (30(A), 33(5), 33(7)/(7A)/(7B), etc.) — powered by the Scheme Engine. Not yet wired into this UI.</p>
+            <p class="muted small">Scheme Comparison — deterministic, per the scheme-engine module. Rules decide eligibility; nothing here is an LLM guess. Fill in Project Details above to sharpen results where evidence is missing.</p>
+            <div id="scheme-comparison-list"></div>
           </div>
         </section>
         <section class="accordion-section">
@@ -143,6 +170,6 @@
   </div>
 
   <script src="vendor/leaflet/leaflet.js"></script>
-  <script src="app.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
