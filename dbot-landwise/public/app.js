@@ -59,7 +59,7 @@ function clearSelection() {
   renderMultiSelectSummary();
   renderMultiSelectHighlight();
   document.getElementById('panel-subtitle').textContent = 'No plot selected';
-  ['project','city','ward','village','zone','dpzone','cts','plots','area','avgwidth','elevation','abutting','ownership','devtype']
+  ['project','city','ward','village','zone','dpzone','cts','plots','smsheet','epsheet','area','avgwidth','elevation','abutting','ownership','devtype']
     .forEach((id) => { const el = document.getElementById(`f-${id}`); if (el) el.textContent = '—'; });
   additionalDetailsSection.classList.add('hidden');
   acknowledgeCheckbox.checked = false;
@@ -424,7 +424,27 @@ function renderMultiSelectSummary() {
   totalEl.textContent = `Total area: ${formatNumber(total)} sq m across ${selectedParcels.size} plots`;
 }
 
+// SM Sheet / EP Sheet -- confirmed real fields (SM_NO/EP_NO) on several layers
+// (DP_0 zone-level, DP/45/46/47/60/61/83), values like "SM-A21"/"EP-KW45" --
+// checked directly against the downloaded data, not assumed. Scans in priority
+// order (zone-level first, since it applies to virtually every parcel; the
+// reservation/designation layers next, since those are where the field is
+// actually populated most often) and takes the first non-blank value found.
+// Not every parcel will have one -- some genuinely don't touch a layer that
+// carries it, which stays null rather than showing a fabricated value.
+const SHEET_LAYER_PRIORITY = ['DP_0', 'DP_46', 'DP_47', 'DP_60', 'DP_61', 'DP_83', 'DP_45'];
+
+function firstSheetValue(allFeatures, field) {
+  for (const layerName of SHEET_LAYER_PRIORITY) {
+    const hit = allFeatures.find((f) => f.layer === layerName);
+    const value = hit?.properties?.[field];
+    if (value != null && value.trim() !== '') return value.trim();
+  }
+  return null;
+}
+
 function buildLocation(ward, village, cts, details) {
+  const allFeatures = details.allIntersectingFeatures ?? [];
   return {
     project: 'New Project',
     city: 'Mumbai',
@@ -434,6 +454,8 @@ function buildLocation(ward, village, cts, details) {
     dpZone: details.location.dpZone,
     ctsTps: cts,
     numPlots: 1,
+    smSheet: firstSheetValue(allFeatures, 'SM_NO'),
+    epSheet: firstSheetValue(allFeatures, 'EP_NO'),
   };
 }
 
@@ -449,6 +471,8 @@ function populatePanel(details) {
   setText('f-dpzone', loc.dpZone);
   setText('f-cts', loc.ctsTps);
   setText('f-plots', loc.numPlots);
+  setText('f-smsheet', loc.smSheet);
+  setText('f-epsheet', loc.epSheet);
 
   const land = details.land;
   setText('f-area', formatNumber(land.area));
