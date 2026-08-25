@@ -1,10 +1,14 @@
 import { evaluateAllSchemes } from './vendor/scheme-engine/src/index.js';
 
-const map = L.map('map', { zoomControl: true }).setView([19.076, 72.877], 12); // Mumbai default
+// zoomControl:false + added back at bottomleft — the default topleft position
+// sat directly under the search box. Scale bar goes in the same corner.
+const map = L.map('map', { zoomControl: false }).setView([19.076, 72.877], 12); // Mumbai default
 L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
   maxZoom: 19,
 }).addTo(map);
+L.control.zoom({ position: 'bottomleft' }).addTo(map);
+L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
 
 // Single shared canvas renderer for the reference-layer overlays below — with
 // 42,000+ features across 10 categories, Leaflet's default SVG renderer (one
@@ -12,6 +16,13 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
 const overlayRenderer = L.canvas({ padding: 0.5 });
 
 let currentParcelLayer = null;
+
+// Multi-parcel selection — Ctrl/Cmd+click adds a plot instead of replacing the
+// current selection. selectedParcels only tracks the ones added this way (a
+// plain click still goes through the single-select path and clears it) so the
+// summary strip stays hidden until there's actually more than one to show.
+const selectedParcels = new Map(); // "ward|village|cts" -> { ward, village, cts, area, geometry }
+const multiSelectHighlightLayer = L.layerGroup().addTo(map);
 
 const searchInput = document.getElementById('search-input');
 const searchResults = document.getElementById('search-results');
@@ -44,6 +55,9 @@ document.querySelectorAll('.accordion-toggle').forEach((btn) => {
 
 function clearSelection() {
   if (currentParcelLayer) { map.removeLayer(currentParcelLayer); currentParcelLayer = null; }
+  selectedParcels.clear();
+  renderMultiSelectSummary();
+  renderMultiSelectHighlight();
   document.getElementById('panel-subtitle').textContent = 'No plot selected';
   ['project','city','ward','village','zone','dpzone','cts','plots','area','avgwidth','elevation','abutting','ownership','devtype']
     .forEach((id) => { const el = document.getElementById(`f-${id}`); if (el) el.textContent = '—'; });
@@ -179,7 +193,13 @@ async function selectCtsResult(ward, village, cts) {
 // the DOM/canvas bounded. CTS labels layer on top of that, same zoom-gated
 // idea, past a tighter threshold since they need more room to read.
 const PARCELS_MIN_ZOOM = 15;
-const CTS_LABEL_MIN_ZOOM = 16;
+// Raised from 16 -- dense areas (lots of small subdivided plots) still produced
+// an unreadable overlapping mess of text at 16. Combined with the pixel-distance
+// decluttering in the label-building loop below (skip a label if it would land
+// too close to one already placed this pass), this keeps labels legible instead
+// of just correct-but-illegible.
+const CTS_LABEL_MIN_ZOOM = 18;
+const LABEL_MIN_PIXEL_SPACING = 42;
 const wardParcelLayers = new Map(); // wardCode -> { parcels, polygons: L.GeoJSON, onMap: boolean }
 let wardBoundsPromise = null;
 
@@ -216,7 +236,15 @@ async function ensureWardParcelLayer(ward) {
       renderer: overlayRenderer,
       style: { color: '#0b1f3a', weight: 1, fillOpacity: 0.05 },
       onEachFeature: (feature, layer) => {
-        layer.on('click', () => selectParcel(feature.properties.ward, feature.properties.village, feature.properties.cts));
+        layer.on('click', (e) => {
+          const { ward, village, cts } = feature.properties;
+          if (e.originalEvent?.ctrlKey || e.originalEvent?.metaKey) {
+            toggleParcelSelection(ward, village, cts);
+          } else {
+            selectedParcels.clear();
+            selectParcel(ward, village, cts);
+          }
+        });
       },
     },
   );
@@ -290,12 +318,17 @@ async function updateVisibleWardParcels() {
   const showLabels = zoom >= CTS_LABEL_MIN_ZOOM;
   labelLayer.clearLayers();
   if (showLabels) {
+    const placedPoints = []; // pixel coords of labels already placed this pass
     for (const ward of overlapping) {
       const entry = wardParcelLayers.get(wardFileCode(ward));
       if (!entry) continue;
       for (const p of entry.parcels) {
         const centroid = parcelCentroid(p.geometry);
         if (!centroidInBounds(centroid, mapBounds)) continue;
+        const px = map.latLngToContainerPoint(centroid);
+        const tooClose = placedPoints.some((q) => px.distanceTo(q) < LABEL_MIN_PIXEL_SPACING);
+        if (tooClose) continue;
+        placedPoints.push(px);
         L.marker(centroid, {
           icon: L.divIcon({ className: 'cts-label', html: p.properties.CTS_CS_NO, iconSize: null }),
           interactive: false,
@@ -311,7 +344,7 @@ async function updateVisibleWardParcels() {
 map.on('moveend', updateVisibleWardParcels);
 updateVisibleWardParcels();
 
-async function selectParcel(ward, village, cts) {
+async function selectParcel(ward, village, cts, { fitView = true } = {}) {
   const facts = await loadWardFacts(ward);
   const details = facts[`${village}|${cts}`];
   if (!details) {
@@ -322,7 +355,73 @@ async function selectParcel(ward, village, cts) {
 
   if (currentParcelLayer) map.removeLayer(currentParcelLayer);
   currentParcelLayer = L.geoJSON(details.geometry, { className: 'parcel-highlight' }).addTo(map);
-  map.fitBounds(currentParcelLayer.getBounds(), { maxZoom: 18, padding: [40, 40] });
+  // Adding to a multi-select shouldn't yank the view to fit just the newly-added
+  // plot -- the user is deliberately looking at several nearby ones together, so
+  // only the very first (primary) selection gets to re-center/zoom the map.
+  if (fitView) map.fitBounds(currentParcelLayer.getBounds(), { maxZoom: 18, padding: [40, 40] });
+
+  renderMultiSelectSummary();
+  renderMultiSelectHighlight();
+}
+
+// Adds/removes one parcel from the multi-select set without disturbing whatever
+// else is selected. The panel keeps showing the full Location/Land/Additional/
+// Scheme detail for whichever parcel was clicked most recently (a true merged
+// multi-parcel fact battery would need re-running the spatial join against a
+// unioned geometry, which this static site can't do client-side) -- the strip
+// above the panel is what shows the whole selection, with a running total area.
+async function toggleParcelSelection(ward, village, cts) {
+  const key = `${ward}|${village}|${cts}`;
+  if (selectedParcels.has(key)) {
+    selectedParcels.delete(key);
+    renderMultiSelectSummary();
+    renderMultiSelectHighlight();
+    return;
+  }
+
+  const facts = await loadWardFacts(ward);
+  const details = facts[`${village}|${cts}`];
+  if (!details) return;
+  selectedParcels.set(key, { ward, village, cts, area: details.land?.area ?? null, geometry: details.geometry });
+  await selectParcel(ward, village, cts, { fitView: false }); // focus its details, but don't yank the view
+}
+
+function renderMultiSelectHighlight() {
+  multiSelectHighlightLayer.clearLayers();
+  for (const { geometry } of selectedParcels.values()) {
+    L.geoJSON(geometry, { style: { color: '#c8a24a', weight: 2, fillOpacity: 0.3 } }).addTo(multiSelectHighlightLayer);
+  }
+}
+
+function renderMultiSelectSummary() {
+  const summaryEl = document.getElementById('multi-select-summary');
+  const listEl = document.getElementById('multi-select-list');
+  const totalEl = document.getElementById('multi-select-total');
+  if (selectedParcels.size < 2) { summaryEl.classList.add('hidden'); return; }
+  summaryEl.classList.remove('hidden');
+  listEl.innerHTML = '';
+  let total = 0;
+  for (const p of selectedParcels.values()) {
+    total += p.area ?? 0;
+    const row = document.createElement('div');
+    row.className = 'multi-select-row';
+    const tick = document.createElement('span');
+    tick.className = 'tick';
+    tick.textContent = '✓';
+    const label = document.createElement('span');
+    label.className = 'row-label';
+    label.textContent = `CTS ${p.cts} — ${p.village} (${formatNumber(p.area)} sq m)`;
+    const remove = document.createElement('span');
+    remove.className = 'row-remove';
+    remove.textContent = '×';
+    remove.addEventListener('click', (e) => { e.stopPropagation(); toggleParcelSelection(p.ward, p.village, p.cts); });
+    row.appendChild(tick);
+    row.appendChild(label);
+    row.appendChild(remove);
+    row.addEventListener('click', () => selectParcel(p.ward, p.village, p.cts));
+    listEl.appendChild(row);
+  }
+  totalEl.textContent = `Total area: ${formatNumber(total)} sq m across ${selectedParcels.size} plots`;
 }
 
 function buildLocation(ward, village, cts, details) {
@@ -524,18 +623,20 @@ function populateAdditionalDetails(ad, allFeatures) {
   setText('ad-resarea', c.areaUnderReservationsSqm != null ? formatNumber(c.areaUnderReservationsSqm) : '0');
   setText('ad-rescount', c.reservationCount);
 
-  // Real/inferred facts: pre-set from computed data, still user-togglable (matching
-  // the reference product's own "auto-computed default, editable" pattern) — flipping
-  // one doesn't feed back into any engine yet, it's just an override for this session.
-  setToggle('ad-gaothan-toggle', 'ad-gaothan-label', c.fallsInGaothanKoliwadaAdivasipada, { on: 'Yes', off: 'No' });
-  setToggle('ad-industrial-toggle', 'ad-industrial-label', ad.flagged.fallsInIndustrialZone.value, { on: 'Yes', off: 'No' });
-  setToggle('ad-crz-toggle', 'ad-crz-label', ad.flagged.fallsInCRZ.value, { on: 'Yes', off: 'No' });
-  setToggle('ad-metro-toggle', 'ad-metro-label', ad.flagged.withinMetroProximity.value, { on: 'Yes', off: 'No' });
+  // Real/inferred facts: plain badge, same visual language as the confidence
+  // badges in "All intersecting layers" below — not editable, since these are
+  // computed, not user opinion.
+  setBadge('ad-gaothan-badge', c.fallsInGaothanKoliwadaAdivasipada);
+  setBadge('ad-industrial-badge', ad.flagged.fallsInIndustrialZone.value);
+  setBadge('ad-crz-badge', ad.flagged.fallsInCRZ.value);
+  setBadge('ad-metro-badge', ad.flagged.withinMetroProximity.value);
 
-  // Genuine gaps: no computed value exists, always start unset. Toggling them is a
-  // pure manual override the user makes themselves, clearly labeled as such.
-  setToggle('ad-cbd-toggle', 'ad-cbd-label', false, { on: 'Yes (manual)', off: 'No data — set manually' });
-  setToggle('ad-slums-toggle', 'ad-slums-label', false, { on: 'Yes (manual)', off: 'No data — set manually' });
+  // Genuine gaps: no computed value exists — a plain select the user sets
+  // themselves, always starting at "no data", never a guessed default.
+  document.getElementById('ad-cbd-select').value = '';
+  document.getElementById('ad-slums-select').value = '';
+
+  renderNocList(allFeatures ?? []);
 
   const featureListEl = document.getElementById('ad-feature-list');
   const countEl = document.getElementById('ad-feature-count');
@@ -557,13 +658,116 @@ function populateAdditionalDetails(ad, allFeatures) {
   }
 }
 
-function setToggle(toggleId, labelId, checked, labelText) {
-  const toggle = document.getElementById(toggleId);
-  const label = document.getElementById(labelId);
-  if (!toggle || !label) return;
-  toggle.checked = Boolean(checked);
-  label.textContent = toggle.checked ? labelText.on : labelText.off;
-  toggle.onchange = () => { label.textContent = toggle.checked ? labelText.on : labelText.off; };
+function setBadge(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = value ? 'Yes' : 'No';
+  el.classList.remove('yes', 'no');
+  el.classList.add(value ? 'yes' : 'no');
+}
+
+// --- NOC Requirement Registry ---------------------------------------------
+// Per the brief's own NOC Registry note: government approval isn't just "which
+// DCPR scheme applies" but "which department signs off on what" -- a genuinely
+// different piece of knowledge. Built from the same allIntersectingFeatures
+// battery already computed per parcel, honestly: "Applicable" means the real
+// spatial trigger was found for THIS parcel; department routing itself is
+// confirmed only for Airport/AAI (DD/43's PERMISSIBL matched the reference
+// screenshot's own 150m threshold) -- the rest have a real spatial fact but
+// unconfirmed routing, or (Fire, Traffic Road) no data at all. Never invented.
+const NOC_LINES = [
+  {
+    name: 'Airport (>150m): AAI',
+    dept: 'Airports Authority of India',
+    hasTrigger: (f) => f.some((x) => x.layer === 'DD_43'),
+    note: 'Confirmed spatial trigger and routing -- DD/43\'s height-restriction value matches the 150m AAI threshold.',
+  },
+  {
+    name: 'Heritage Buffer',
+    dept: 'Heritage Committee',
+    hasTrigger: (f) => f.some((x) => ['DP_77', 'DP_78', 'DP_79'].includes(x.layer)),
+    note: 'Spatial fact is real (DP/77-79); the "routes to Heritage Committee" step itself isn\'t independently confirmed.',
+  },
+  {
+    name: 'Existing Road',
+    dept: 'BMC Ward Authority',
+    hasTrigger: (f) => f.some((x) => x.layer === 'DP_44'),
+    note: 'Spatial fact is real (DP/44); routing not independently confirmed.',
+  },
+  {
+    name: 'Storm Water / Sewerage / Waterpipes',
+    dept: 'BMC SWD / HE Departments',
+    hasTrigger: (f) => f.some((x) => ['AKO_6', 'AKO_55'].includes(x.layer)),
+    note: 'Underlying utility data exists (AKO/6, AKO/55); routing not independently confirmed.',
+  },
+  {
+    name: 'Fire',
+    dept: 'BMC Chief Fire Officer',
+    hasTrigger: null,
+    note: 'No jurisdiction data identified at all -- always Unknown, never guessed.',
+  },
+  {
+    name: 'Traffic Road',
+    dept: 'BMC Roads & Traffic Department',
+    hasTrigger: null,
+    note: 'Unclear whether this is a distinct layer/classification from "Existing Road" or the same data under a different attribute -- not checked, always Unknown.',
+  },
+];
+
+function renderNocList(allFeatures) {
+  const listEl = document.getElementById('noc-list');
+  listEl.innerHTML = '';
+  for (const line of NOC_LINES) {
+    const status = line.hasTrigger == null ? 'unknown' : (line.hasTrigger(allFeatures) ? 'applicable' : 'not-applicable');
+    const statusLabel = { applicable: 'Applicable', 'not-applicable': 'Not Applicable', unknown: 'Unknown' }[status];
+    const row = document.createElement('div');
+    row.className = 'noc-item';
+    row.title = line.note;
+    row.innerHTML = `<span><span class="noc-name">${line.name}</span><span class="noc-dept">${line.dept}</span></span>` +
+      `<span class="noc-status ${status}">${statusLabel}</span>`;
+    listEl.appendChild(row);
+  }
+}
+
+// --- Generic inline editing -------------------------------------------------
+// Every .field.editable's pencil/Edit button wires up the same way: replace the
+// adjacent .value span with a real input on click, commit back to a span on
+// blur/Enter. Works for every manual-entry field in the panel (Area, Avg
+// Width, Ownership, ASR rates, slum area, BUA retained, etc.) without needing
+// a per-field handler.
+document.querySelectorAll('.field.editable .edit-btn').forEach((btn) => {
+  btn.addEventListener('click', () => startInlineEdit(btn));
+});
+
+function startInlineEdit(btn) {
+  const field = btn.closest('.field');
+  const valueEl = field.querySelector('.value');
+  if (!valueEl || field.querySelector('input.inline-edit')) return;
+
+  const isNumeric = field.querySelector('.unit') != null;
+  const placeholderTexts = ['Not yet available', 'Enter manually', '—'];
+  const currentText = valueEl.textContent.trim();
+  const startValue = placeholderTexts.includes(currentText) ? '' : currentText;
+
+  const input = document.createElement('input');
+  input.type = isNumeric ? 'number' : 'text';
+  input.className = 'inline-edit';
+  input.value = startValue;
+  const fieldId = valueEl.id;
+  valueEl.replaceWith(input);
+  input.focus();
+  input.select();
+
+  const commit = () => {
+    const newValue = input.value.trim();
+    const span = document.createElement('span');
+    span.className = 'value';
+    span.id = fieldId;
+    span.textContent = newValue || currentText;
+    input.replaceWith(span);
+  };
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
 }
 
 function setText(id, value) {

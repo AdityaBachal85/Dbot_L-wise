@@ -34,6 +34,10 @@ body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; color: var(--t
 .search-results.hidden { display: none; }
 .search-results .result-item { padding: 8px 14px; cursor: pointer; font-size: 13px; }
 .search-results .result-item:hover { background: var(--bg-cream); }
+.search-hint {
+  margin: 6px 0 0; font-size: 11px; color: var(--text-muted);
+  background: rgba(255,255,255,0.85); display: inline-block; padding: 2px 8px; border-radius: 6px;
+}
 
 .panel {
   width: 380px; flex: 0 0 auto; background: var(--bg-cream);
@@ -116,35 +120,37 @@ section h3 {
 .gap-list .field span { font-style: italic; }
 
 /* Additional Land Details — reference-matched layout: a two-column field
-   grid, toggle switches for boolean facts (real + manual-override gaps
-   alike, matching the reference product's own "auto-computed but user can
-   override" pattern), and a muted italic treatment for genuine gaps. */
+   grid. Computed facts (real or inferred) show as a plain badge, same
+   language as the "All intersecting layers" confidence badges elsewhere in
+   this panel; genuine gaps are a manual select/input, never a guessed
+   default. No toggle-switch component — plain and informative instead. */
 .two-col-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px;
   margin-bottom: 10px;
 }
-.two-col-grid .field { border-bottom: none; padding: 2px 0; flex-wrap: wrap; }
+.two-col-grid .field { border-bottom: none; padding: 2px 0; flex-wrap: wrap; align-items: center; }
 .two-col-grid .field label { flex: 1 1 100%; font-size: 12px; margin-bottom: 2px; }
 .two-col-grid .field .value { flex: 1 1 auto; }
 .field.gap .value { font-style: italic; opacity: 0.7; }
 
-.toggle-field { align-items: center; }
-.toggle-field label:first-child { flex: 1 1 auto; }
-.toggle-field .value { flex: 0 0 auto; font-size: 12px; margin-left: 8px; }
+.value.badge {
+  display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px;
+  border-radius: 10px; background: #eceae4; color: var(--text-main); flex: 0 0 auto !important;
+}
+.value.badge.yes { background: #e3f3e6; color: #1f7a34; }
+.value.badge.no { background: #f2f0ea; color: var(--text-muted); }
 
-.switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: 0 0 auto; cursor: pointer; }
-.switch input { opacity: 0; width: 0; height: 0; }
-.switch .slider {
-  position: absolute; inset: 0; background: #d8d2c4; border-radius: 20px;
-  transition: background 0.15s;
+.two-col-grid select.value, .reservation-block select.value {
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
+  font-size: 12px; background: #fff; font-family: inherit; width: 100%;
 }
-.switch .slider::before {
-  content: ''; position: absolute; height: 14px; width: 14px; left: 3px; top: 3px;
-  background: #fff; border-radius: 50%; transition: transform 0.15s;
+
+/* Generic inline editing for any .field.editable's pencil/Edit button — replaces
+   the .value span with a real input on click, commits back on blur/Enter. */
+input.inline-edit {
+  border: 1px solid var(--dbot-gold); border-radius: 6px; padding: 3px 6px;
+  font-size: 13px; font-family: inherit; flex: 1 1 auto; width: 90px;
 }
-.switch input:checked + .slider { background: var(--dbot-gold); }
-.switch input:checked + .slider::before { transform: translateX(16px); }
-.switch input:disabled + .slider { opacity: 0.5; cursor: not-allowed; }
 
 .reservation-block {
   border-top: 1px solid rgba(0,0,0,0.08); margin-top: 8px; padding-top: 10px;
@@ -166,6 +172,38 @@ section h3 {
 .accordion-toggle[aria-expanded="true"] .accordion-caret { transform: rotate(180deg); }
 .accordion-body { padding: 4px 0 12px; }
 .muted.small { font-size: 12px; line-height: 1.5; }
+
+/* NOC Requirement Registry — same compact "name + badge" language as the
+   All-intersecting-layers list and the confidence badges throughout this
+   panel, per direct feedback that that style reads as simple/informative. */
+.noc-item {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 7px 0; border-bottom: 1px solid rgba(0,0,0,0.05); font-size: 12px;
+}
+.noc-item:last-child { border-bottom: none; }
+.noc-name { font-weight: 600; color: var(--text-main); }
+.noc-dept { color: var(--text-muted); font-size: 11px; display: block; }
+.noc-status {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+  padding: 2px 8px; border-radius: 10px; flex: 0 0 auto; white-space: nowrap;
+}
+.noc-status.applicable { background: #fdf3d8; color: #8a6a13; }
+.noc-status.not-applicable { background: #e3f3e6; color: #1f7a34; }
+.noc-status.unknown { background: #eceae4; color: var(--text-muted); }
+
+/* Multi-parcel selection — Ctrl/Cmd+click adds a plot to the selection instead
+   of replacing it; this strip lists what's selected with a tick per row. */
+#multi-select-summary { padding: 10px 20px; border-bottom: 1px solid var(--border); background: #fff8ea; }
+.multi-select-row {
+  display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 12px; cursor: pointer;
+}
+.multi-select-row .tick {
+  width: 16px; height: 16px; border-radius: 4px; background: var(--dbot-gold); color: #fff;
+  display: flex; align-items: center; justify-content: center; font-size: 11px; flex: 0 0 auto;
+}
+.multi-select-row .row-label { flex: 1 1 auto; }
+.multi-select-row .row-remove { color: var(--text-muted); font-size: 14px; }
+#multi-select-total { margin-top: 6px; font-weight: 600; }
 
 /* Scheme Comparison — one card per registered scheme, four-state verdict badge
    (matches the brief's 🟢/🟡/🔴/⚪ model), reasons and source trail underneath. */

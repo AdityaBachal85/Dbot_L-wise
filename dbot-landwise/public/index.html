@@ -12,6 +12,7 @@
       <div class="search-box">
         <input id="search-input" type="text" placeholder="Search CTS / village" autocomplete="off" />
         <div id="search-results" class="search-results hidden"></div>
+        <p class="search-hint">Ctrl/Cmd+click a plot to select multiple</p>
       </div>
       <div id="map"></div>
     </div>
@@ -23,6 +24,11 @@
           <span id="panel-subtitle" class="muted">No plot selected</span>
         </div>
         <button id="panel-close" class="icon-btn" aria-label="Close">&times;</button>
+      </div>
+
+      <div id="multi-select-summary" class="hidden">
+        <div id="multi-select-list"></div>
+        <div id="multi-select-total" class="muted small"></div>
       </div>
 
       <div class="panel-body">
@@ -69,14 +75,14 @@
             <div class="field editable gap"><label>ASR Rate of Construction (RCC)</label><span class="value" id="ad-rccrate">Not yet available</span><span class="unit">₹/sq m</span><button class="edit-btn" data-field="rccrate">&#9998;</button></div>
           </div>
 
-          <div class="two-col-grid toggle-grid">
-            <div class="field toggle-field gap" data-tooltip-target="ad-cbd-tip"><label>Falls in CBD (Central Business District)</label><label class="switch"><input type="checkbox" id="ad-cbd-toggle" /><span class="slider"></span></label><span class="value" id="ad-cbd-label">No data — set manually</span></div>
-            <div class="field toggle-field"><label>Falls in Gaothan/Koliwada/Adivasipada</label><label class="switch"><input type="checkbox" id="ad-gaothan-toggle" /><span class="slider"></span></label><span class="value" id="ad-gaothan-label">No</span></div>
-            <div class="field toggle-field gap" data-tooltip-target="ad-slums-tip"><label>Slums on Site</label><label class="switch"><input type="checkbox" id="ad-slums-toggle" /><span class="slider"></span></label><span class="value" id="ad-slums-label">No data — set manually</span></div>
+          <div class="two-col-grid">
+            <div class="field"><label>Falls in CBD (Central Business District)</label><select class="value" id="ad-cbd-select"><option value="">No data — set manually</option><option value="true">Yes</option><option value="false">No</option></select></div>
+            <div class="field"><label>Falls in Gaothan/Koliwada/Adivasipada</label><span class="value badge" id="ad-gaothan-badge">—</span></div>
+            <div class="field"><label>Slums on Site</label><select class="value" id="ad-slums-select"><option value="">No data — set manually</option><option value="true">Yes</option><option value="false">No</option></select></div>
             <div class="field editable gap"><label>Plot Area under Slums</label><span class="value" id="ad-slumarea">Not yet available</span><span class="unit">sq m</span><button class="edit-btn" data-field="slumarea">&#9998;</button></div>
-            <div class="field toggle-field flagged" data-tooltip-target="ad-industrial-tip"><label>Falls in Industrial Zone</label><label class="switch"><input type="checkbox" id="ad-industrial-toggle" /><span class="slider"></span></label><span class="value" id="ad-industrial-label">No</span></div>
-            <div class="field toggle-field flagged" data-tooltip-target="ad-crz-tip"><label>Falls in CRZ</label><label class="switch"><input type="checkbox" id="ad-crz-toggle" /><span class="slider"></span></label><span class="value" id="ad-crz-label">No</span></div>
-            <div class="field toggle-field flagged" data-tooltip-target="ad-metro-tip"><label>Within Metro Corridor Proximity</label><label class="switch"><input type="checkbox" id="ad-metro-toggle" /><span class="slider"></span></label><span class="value" id="ad-metro-label">No</span></div>
+            <div class="field flagged" data-tooltip-target="ad-industrial-tip"><label>Falls in Industrial Zone</label><span class="value badge" id="ad-industrial-badge">—</span><span class="confidence-flag" title="Lower confidence — hover for details">ⓘ</span></div>
+            <div class="field flagged" data-tooltip-target="ad-crz-tip"><label>Falls in CRZ</label><span class="value badge" id="ad-crz-badge">—</span><span class="confidence-flag" title="Lower confidence — hover for details">ⓘ</span></div>
+            <div class="field flagged" data-tooltip-target="ad-metro-tip"><label>Within Metro Corridor Proximity</label><span class="value badge" id="ad-metro-badge">—</span><span class="confidence-flag" title="Lower confidence — hover for details">ⓘ</span></div>
             <div class="field editable"><label>Existing BUA to be Retained</label><span class="value" id="ad-buaretained">0</span><span class="unit">sq m</span><button class="edit-btn" data-field="buaretained">&#9998;</button></div>
           </div>
           <p class="field-note" id="ad-cbd-tip">Genuine gap — no CBD boundary source has been identified yet. This toggle is a manual override, not a computed fact.</p>
@@ -150,7 +156,8 @@
         <section class="accordion-section">
           <button class="accordion-toggle" data-target="approval-details-body">Approval Details <span class="accordion-caret">▾</span></button>
           <div class="accordion-body hidden" id="approval-details-body">
-            <p class="muted small">NOC requirements and approval-cost estimates — needs the Fees/Approval-Cost Engine. Not yet built.</p>
+            <p class="muted small">NOC Requirement Registry — which department signs off, not just which regulation applies. "Applicable" means the spatial trigger for this parcel was found; the department routing itself is confirmed only for Airport/AAI so far (see note per line). Approval-cost estimates still need the Fees/Approval-Cost Engine — not yet built.</p>
+            <div id="noc-list"></div>
           </div>
         </section>
         <section class="accordion-section">
