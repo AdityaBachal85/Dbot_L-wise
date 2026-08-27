@@ -4,16 +4,34 @@ import { evaluateAllSchemes } from './vendor/scheme-engine/src/index.js';
 // sat directly under the search box. Scale bar goes in the same corner.
 const map = L.map('map', { zoomControl: false }).setView([19.076, 72.877], 12); // Mumbai default
 
-// Base layers — CARTO stays the default (free, unmetered) so the map costs
-// nothing to just open. Mapbox styles are opt-in alternates the user picks
-// from the layer control; since Leaflet base layers are mutually exclusive
-// (radio-button group), at most one tile source is ever active/requesting
-// at a time — switching removes the previous layer's tiles entirely rather
-// than stacking a second set of requests on top.
-const cartoLight = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+// Base layers. CARTO's basemaps.cartocdn.com raster endpoint (used here
+// previously) now requires their own API key for anonymous requests —
+// tiles come back as "API KEY REQUIRED" placeholders without one — so it's
+// dropped in favor of two providers that are genuinely keyless:
+// OpenStreetMap's standard tile server (default — supports our deepest
+// zoom levels natively, no overzoom blur) and Esri's Light Gray Canvas
+// (base + label reference stacked as one layer group) as a cleaner,
+// lower-contrast alternative closer to the reference product's look.
+// Mapbox styles are opt-in extras the user picks from the layer control;
+// since Leaflet base layers are mutually exclusive (radio-button group),
+// at most one tile source is ever active/requesting at a time — switching
+// removes the previous layer's tiles entirely rather than stacking a
+// second set of requests on top.
+const osmStandard = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
   maxZoom: 19,
 });
+const esriLightGray = L.layerGroup([
+  L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Tiles &copy; Esri',
+    maxZoom: 19,
+    maxNativeZoom: 16, // this basemap tops out natively at 16; Leaflet upscales beyond that
+  }),
+  L.tileLayer('https://services.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Reference/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19,
+    maxNativeZoom: 16,
+  }),
+]);
 
 // One token constant, reused to build each style's URL template — the token
 // itself is a single string value substituted into a template, not a
@@ -40,12 +58,15 @@ function mapboxTileLayer(styleId) {
     updateWhenZooming: false, // don't fire new tile requests mid-zoom-animation, only once it settles
   });
 }
-const baseLayers = { 'CARTO Light (default)': cartoLight };
+const baseLayers = {
+  'OpenStreetMap (default)': osmStandard,
+  'Esri Light Gray': esriLightGray,
+};
 if (MAPBOX_TOKEN) {
   baseLayers['Mapbox Streets'] = mapboxTileLayer('streets-v12');
   baseLayers['Mapbox Satellite'] = mapboxTileLayer('satellite-streets-v12');
 }
-cartoLight.addTo(map);
+osmStandard.addTo(map);
 
 L.control.zoom({ position: 'bottomleft' }).addTo(map);
 L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
