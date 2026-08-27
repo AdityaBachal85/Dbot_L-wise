@@ -317,9 +317,6 @@ async function ensureWardParcelLayer(ward) {
   return entry;
 }
 
-let parcelsEnabled = true;
-const parcelsToggleLayer = L.layerGroup(); // hooks the "Parcels" checkbox into the same layer control as the other 10
-
 // CTS labels are individual DOM markers (Leaflet has no built-in canvas text
 // primitive), so unlike the polygons above they can't just be "the whole ward,
 // canvas-rendered" — a dense ward (P/N has 13,927 parcels, K/W has 11,448) would
@@ -347,7 +344,7 @@ function centroidInBounds(centroid, bounds) {
 async function updateVisibleWardParcels() {
   const myGeneration = ++renderGeneration;
   const zoom = map.getZoom();
-  if (!parcelsEnabled || zoom < PARCELS_MIN_ZOOM) {
+  if (zoom < PARCELS_MIN_ZOOM) {
     for (const entry of wardParcelLayers.values()) {
       if (entry.onMap) { map.removeLayer(entry.polygons); entry.onMap = false; }
     }
@@ -924,23 +921,9 @@ function popupHtmlFor(feature) {
 async function loadMapLayers() {
   const layersControl = L.control.layers(baseLayers, null, { collapsed: false, position: 'topright' }).addTo(map);
 
-  // "Parcels / CTS boundaries" — on by default, above the 10 reference-layer
-  // toggles. parcelsToggleLayer itself never holds real data; it just hooks a
-  // checkbox into the shared control so this can be turned off the same way
-  // as everything else, while the actual polygons/labels are the
-  // viewport-driven per-ward layers managed by updateVisibleWardParcels.
-  parcelsToggleLayer.addTo(map);
-  layersControl.addOverlay(parcelsToggleLayer, 'Parcels / CTS boundaries');
-  map.on('overlayadd', (e) => {
-    if (e.layer !== parcelsToggleLayer) return;
-    parcelsEnabled = true;
-    updateVisibleWardParcels();
-  });
-  map.on('overlayremove', (e) => {
-    if (e.layer !== parcelsToggleLayer) return;
-    parcelsEnabled = false;
-    updateVisibleWardParcels();
-  });
+  // Parcels / CTS boundaries are permanent — no checkbox, no way to hide them.
+  // They're not part of the layer control at all; the viewport-driven per-ward
+  // layers (updateVisibleWardParcels) draw regardless of what's toggled below.
 
   await Promise.all(Object.keys(MAP_LAYER_STYLES).map(async (category) => {
     let data;
